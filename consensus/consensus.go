@@ -19,6 +19,8 @@ package consensus
 
 import (
 	"crypto/ecdsa"
+	"time"
+
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/state"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
@@ -26,7 +28,6 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/params"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
-	"time"
 )
 
 // ChainReader defines a small collection of methods needed to access the local
@@ -101,9 +102,16 @@ type Engine interface {
 
 	NextBaseBlock() *types.Block
 
-	InsertChain(block *types.Block) <-chan error
+	InsertChain(block *types.Block, errCh chan error)
 
 	HasBlock(hash common.Hash, number uint64) bool
+
+	Status() string
+	GetBlockByHash(hash common.Hash) *types.Block
+
+	CurrentBlock() *types.Block
+
+	FastSyncCommitHead() <-chan error
 
 	// Close terminates any background threads maintained by the consensus engine.
 	Close() error
@@ -126,8 +134,8 @@ type Bft interface {
 	// Returns whether the current node is out of the block
 	ShouldSeal(curTime int64) (bool, error)
 
-	CalcBlockDeadline() time.Time
-	CalcNextBlockTime() time.Time
+	CalcBlockDeadline() (time.Time, error)
+	CalcNextBlockTime() (time.Time, error)
 
 	// Process the BFT signatures
 	//OnNewBlock(chain ChainReader, block *types.Block) error
@@ -148,6 +156,8 @@ type Bft interface {
 	HighestConfirmedBlock() *types.Block
 
 	GetBlock(hash common.Hash, number uint64) *types.Block
+
+	GetBlockWithoutLock(hash common.Hash, number uint64) *types.Block
 
 	SetPrivateKey(privateKey *ecdsa.PrivateKey)
 

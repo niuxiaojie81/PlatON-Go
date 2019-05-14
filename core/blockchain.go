@@ -20,6 +20,12 @@ package core
 import (
 	"errors"
 	"fmt"
+	"io"
+	mrand "math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/common/mclock"
 	"github.com/PlatONnetwork/PlatON-Go/common/prque"
@@ -36,12 +42,7 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/params"
 	"github.com/PlatONnetwork/PlatON-Go/rlp"
 	"github.com/PlatONnetwork/PlatON-Go/trie"
-	"github.com/hashicorp/golang-lru"
-	"io"
-	mrand "math/rand"
-	"sync"
-	"sync/atomic"
-	"time"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -324,7 +325,7 @@ func (bc *BlockChain) FastSyncCommitHead(hash common.Hash) error {
 	bc.mu.Unlock()
 
 	log.Info("Committed new head block", "number", block.Number(), "hash", hash)
-	return nil
+	return <-bc.engine.FastSyncCommitHead()
 }
 
 // GasLimit returns the gas limit of the current HEAD block.
@@ -1145,7 +1146,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			bc.reportBlock(block, nil, err)
 			return i, events, coalescedLogs, err
 		}
-		err = <-bc.engine.InsertChain(block)
+		errCh := make(chan error, 1)
+		bc.engine.InsertChain(block, errCh)
+		err = <-errCh
 		if err != nil {
 			return i, events, coalescedLogs, err
 		}
