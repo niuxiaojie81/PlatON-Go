@@ -32,7 +32,6 @@ func TestWal(t *testing.T) {
 	// test rotate
 	//time.Sleep(6 * time.Second)
 
-
 	// UpdateViewChange
 	wal.UpdateViewChange(&ViewChangeMessage{
 		Hash:   common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065747"),
@@ -41,6 +40,7 @@ func TestWal(t *testing.T) {
 
 	// WriteJournal
 	beginTime1 := uint64(time.Now().UnixNano())
+	countW := 0
 	for i := 0; i < 3000000; i++ {
 		peerId, _ := discover.HexID("b6c8c9f99bfebfa4fb174df720b9385dbd398de699ec36750af3f38f8e310d4f0b90447acbef64bdf924c4b59280f3d42bb256e6123b53e9a7e99e4c432549d6")
 		if i%2 == 0 {
@@ -159,13 +159,12 @@ func TestWal(t *testing.T) {
 			fmt.Println("write error", err)
 			panic(err)
 		}
+		countW ++
 	}
 	wal.Close() // force flush
-	countW := wal.journal.successWrite
 	fmt.Println("write total msg info", countW)
 	endTime1 := uint64(time.Now().UnixNano())
 	fmt.Println("write elapsed time", endTime1-beginTime1)
-
 
 	// LoadJournal
 	beginTime2 := uint64(time.Now().UnixNano())

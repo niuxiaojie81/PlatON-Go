@@ -1969,6 +1969,6 @@ func (cbft *Cbft) needBroadcast(nodeId discover.NodeID, msg Message) bool {
 }
 
 func (cbft *Cbft) AddJournal(msg *MsgInfo) {
-	cbft.log.Debug("[Method:LoadPeerMsg] received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
+	cbft.log.Debug("Method:LoadPeerMsg received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
 	cbft.handleMsg(msg)
 }

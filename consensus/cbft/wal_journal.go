@@ -69,7 +69,6 @@ type journal struct {
 	fileID       uint32
 	mu           sync.Mutex
 	exitCh       chan struct{}
-	successWrite int
 }
 
 func listJournalFiles(path string) sortFiles {
@@ -106,7 +105,6 @@ func NewJournal(path string) (*journal, error) {
 		path:         path,
 		exitCh:       make(chan struct{}),
 		fileID:       1,
-		successWrite: 0,
 	}
 	if files := listJournalFiles(path); files != nil && files.Len() > 0 {
 		journal.fileID = files[len(files)-1].num
@@ -164,7 +162,7 @@ func (journal *journal) CurrentJournal() (uint32, uint64, error) {
 }
 
 // insert adds the specified JournalMessage to the local disk journal.
-func (journal *journal) insert(msg *JournalMessage) error {
+func (journal *journal) Insert(msg *JournalMessage) error {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 
@@ -185,7 +183,6 @@ func (journal *journal) insert(msg *JournalMessage) error {
 	n, err := journal.writer.Write(buf)
 	if err == nil && n > 0 {
 		log.Trace("Successful to insert journal message", "n", n)
-		journal.successWrite ++
 		return nil
 	}
 	return err
@@ -212,7 +209,7 @@ func encodeJournal(msg *JournalMessage) ([]byte, error) {
 }
 
 // close flushes the journal contents to disk and closes the file.
-func (journal *journal) close() {
+func (journal *journal) Close() {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 
