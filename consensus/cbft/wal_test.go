@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/rlp"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -31,7 +30,7 @@ func TestWal(t *testing.T) {
 
 	// test rotate
 	//time.Sleep(6 * time.Second)
-
+/*
 	// UpdateViewChange
 	wal.UpdateViewChange(&ViewChangeMessage{
 		Hash:   common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065747"),
@@ -165,6 +164,7 @@ func TestWal(t *testing.T) {
 	fmt.Println("write total msg info", countW)
 	endTime1 := uint64(time.Now().UnixNano())
 	fmt.Println("write elapsed time", endTime1-beginTime1)
+*/
 
 	// LoadJournal
 	beginTime2 := uint64(time.Now().UnixNano())
