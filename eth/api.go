@@ -21,13 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"math/big"
-	"os"
-	"runtime"
-	"strings"
-	"time"
-
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/common/hexutil"
 	"github.com/PlatONnetwork/PlatON-Go/core"
@@ -39,6 +32,10 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/rlp"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
 	"github.com/PlatONnetwork/PlatON-Go/trie"
+	"io"
+	"math/big"
+	"os"
+	"strings"
 )
 
 // PublicEthereumAPI provides an API to access Ethereum full node-related
@@ -100,26 +97,26 @@ func NewPrivateMinerAPI(e *Ethereum) *PrivateMinerAPI {
 // usable by this process. If mining is already running, this method adjust the
 // number of threads allowed to use and updates the minimum price required by the
 // transaction pool.
-func (api *PrivateMinerAPI) Start(threads *int) error {
-	if threads == nil {
-		return api.e.StartMining(runtime.NumCPU())
-	}
-	return api.e.StartMining(*threads)
-}
+//func (api *PrivateMinerAPI) Start(threads *int) error {
+//	if threads == nil {
+//		return api.e.StartMining(runtime.NumCPU())
+//	}
+//	return api.e.StartMining(*threads)
+//}
 
 // Stop terminates the miner, both at the consensus engine level as well as at
 // the block creation level.
-func (api *PrivateMinerAPI) Stop() {
-	api.e.StopMining()
-}
+//func (api *PrivateMinerAPI) Stop() {
+//	api.e.StopMining()
+//}
 
 // SetExtra sets the extra data string that is included when this miner mines a block.
-func (api *PrivateMinerAPI) SetExtra(extra string) (bool, error) {
-	if err := api.e.Miner().SetExtra([]byte(extra)); err != nil {
-		return false, err
-	}
-	return true, nil
-}
+//func (api *PrivateMinerAPI) SetExtra(extra string) (bool, error) {
+//	if err := api.e.Miner().SetExtra([]byte(extra)); err != nil {
+//		return false, err
+//	}
+//	return true, nil
+//}
 
 // SetGasPrice sets the minimum accepted gas price for the miner.
 func (api *PrivateMinerAPI) SetGasPrice(gasPrice hexutil.Big) bool {
@@ -132,15 +129,15 @@ func (api *PrivateMinerAPI) SetGasPrice(gasPrice hexutil.Big) bool {
 }
 
 // SetEtherbase sets the etherbase of the miner
-func (api *PrivateMinerAPI) SetEtherbase(etherbase common.Address) bool {
-	api.e.SetEtherbase(etherbase)
-	return true
-}
+//func (api *PrivateMinerAPI) SetEtherbase(etherbase common.Address) bool {
+//	api.e.SetEtherbase(etherbase)
+//	return true
+//}
 
 // SetRecommitInterval updates the interval for miner sealing work recommitting.
-func (api *PrivateMinerAPI) SetRecommitInterval(interval int) {
-	api.e.Miner().SetRecommitInterval(time.Duration(interval) * time.Millisecond)
-}
+//func (api *PrivateMinerAPI) SetRecommitInterval(interval int) {
+//	api.e.Miner().SetRecommitInterval(time.Duration(interval) * time.Millisecond)
+//}
 
 // PrivateAdminAPI is the collection of Ethereum full node-related APIs
 // exposed over the private admin endpoint.

@@ -2530,7 +2530,7 @@ var BigNumber = require('bignumber.js');
 function Web3 (provider) {
     this._requestManager = new RequestManager(provider);
     this.currentProvider = provider;
-    this.eth = new Eth(this);
+    this.platon = new Eth(this);
     this.db = new DB(this);
     this.shh = new Shh(this);
     this.net = new Net(this);
@@ -5470,7 +5470,7 @@ var properties = function () {
     return [
         new Property({
             name: 'coinbase',
-            getter: 'eth_coinbase'
+            getter: 'platon_coinbase'
         }),
         new Property({
             name: 'mining',
@@ -5483,7 +5483,7 @@ var properties = function () {
         }),
         new Property({
             name: 'syncing',
-            getter: 'eth_syncing',
+            getter: 'platon_syncing',
             outputFormatter: formatters.outputSyncingFormatter
         }),
         new Property({
