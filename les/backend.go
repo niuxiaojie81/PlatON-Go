@@ -18,13 +18,11 @@
 package les
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/PlatONnetwork/PlatON-Go/accounts"
 	"github.com/PlatONnetwork/PlatON-Go/common"
-	"github.com/PlatONnetwork/PlatON-Go/common/hexutil"
 	"github.com/PlatONnetwork/PlatON-Go/consensus"
 	"github.com/PlatONnetwork/PlatON-Go/core"
 	"github.com/PlatONnetwork/PlatON-Go/core/bloombits"
@@ -160,7 +158,7 @@ func lesTopic(genesisHash common.Hash, protocolVersion uint) discv5.Topic {
 	}
 	return discv5.Topic(name + "@" + common.Bytes2Hex(genesisHash.Bytes()[0:8]))
 }
-
+/*
 type LightDummyAPI struct{}
 
 // Etherbase is the address that mining rewards will be send to
@@ -182,23 +180,25 @@ func (s *LightDummyAPI) Hashrate() hexutil.Uint {
 func (s *LightDummyAPI) Mining() bool {
 	return false
 }
+*/
 
 // APIs returns the collection of RPC services the ethereum package offers.
 // NOTE, some of these services probably need to be moved to somewhere else.
 func (s *LightEthereum) APIs() []rpc.API {
 	return append(ethapi.GetAPIs(s.ApiBackend), []rpc.API{
+		//{
+		//	Namespace: "platon",
+		//	Version:   "1.0",
+		//	Service:   &LightDummyAPI{},
+		//	Public:    true,
+		//},
 		{
-			Namespace: "eth",
-			Version:   "1.0",
-			Service:   &LightDummyAPI{},
-			Public:    true,
-		}, {
-			Namespace: "eth",
+			Namespace: "platon",
 			Version:   "1.0",
 			Service:   downloader.NewPublicDownloaderAPI(s.protocolManager.downloader, s.eventMux),
 			Public:    true,
 		}, {
-			Namespace: "eth",
+			Namespace: "platon",
 			Version:   "1.0",
 			Service:   filters.NewPublicFilterAPI(s.ApiBackend, true),
 			Public:    true,

@@ -21,6 +21,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math/big"
+	"os"
+	"strings"
+
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/common/hexutil"
 	"github.com/PlatONnetwork/PlatON-Go/core"
@@ -32,12 +37,9 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/rlp"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
 	"github.com/PlatONnetwork/PlatON-Go/trie"
-	"io"
-	"math/big"
-	"os"
-	"strings"
 )
 
+/*
 // PublicEthereumAPI provides an API to access Ethereum full node-related
 // information.
 type PublicEthereumAPI struct {
@@ -59,11 +61,10 @@ func (api *PublicEthereumAPI) Coinbase() (common.Address, error) {
 	return api.Etherbase()
 }
 
-/*
 // Hashrate returns the POW hashrate
 func (api *PublicEthereumAPI) Hashrate() hexutil.Uint64 {
 	return hexutil.Uint64(api.e.Miner().HashRate())
-}*/
+}
 
 // PublicMinerAPI provides an API to control the miner.
 // It offers only methods that operate on data that pose no security risk when it is publicly accessible.
@@ -80,6 +81,7 @@ func NewPublicMinerAPI(e *Ethereum) *PublicMinerAPI {
 func (api *PublicMinerAPI) Mining() bool {
 	return api.e.IsMining()
 }
+*/
 
 // PrivateMinerAPI provides private RPC methods to control the miner.
 // These methods can be abused by external users and must be considered insecure for use by untrusted users.
