@@ -284,17 +284,6 @@ func (s *Ethereum) APIs() []rpc.API {
 
 	// Append all the local APIs and return
 	return append(apis, []rpc.API{
-		//{
-		//	Namespace: "platon",
-		//	Version:   "1.0",
-		//	Service:   NewPublicEthereumAPI(s),
-		//	Public:    true,
-		//},{
-		//	Namespace: "platon",
-		//	Version:   "1.0",
-		//	Service:   NewPublicMinerAPI(s),
-		//	Public:    true,
-		//},
 		{
 			Namespace: "platon",
 			Version:   "1.0",

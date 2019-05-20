@@ -2580,7 +2580,6 @@ Web3.prototype.fromWei = utils.fromWei;
 Web3.prototype.isAddress = utils.isAddress;
 Web3.prototype.isChecksumAddress = utils.isChecksumAddress;
 Web3.prototype.toChecksumAddress = utils.toChecksumAddress;
-Web3.prototype.isIBAN = utils.isIBAN;
 Web3.prototype.padLeft = utils.padLeft;
 Web3.prototype.padRight = utils.padRight;
 
@@ -5214,17 +5213,9 @@ var transactionFromBlockCall = function (args) {
     return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'platon_getTransactionByBlockHashAndIndex' : 'platon_getTransactionByBlockNumberAndIndex';
 };
 
-// var uncleCall = function (args) {
-//     return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'platon_getUncleByBlockHashAndIndex' : 'platon_getUncleByBlockNumberAndIndex';
-// };
-
 var getBlockTransactionCountCall = function (args) {
     return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'platon_getBlockTransactionCountByHash' : 'platon_getBlockTransactionCountByNumber';
 };
-
-// var uncleCountCall = function (args) {
-//     return (utils.isString(args[0]) && args[0].indexOf('0x') === 0) ? 'platon_getUncleCountByBlockHash' : 'platon_getUncleCountByBlockNumber';
-// };
 
 function Eth(web3) {
     this._requestManager = web3._requestManager;
@@ -5240,10 +5231,6 @@ function Eth(web3) {
         p.attachToObject(self);
         p.setRequestManager(self._requestManager);
     });
-
-
-    // this.iban = Iban;
-    // this.sendIBANTransaction = transfer.bind(null, this);
 }
 
 Object.defineProperty(Eth.prototype, 'defaultBlock', {
@@ -5297,21 +5284,6 @@ var methods = function () {
         outputFormatter: formatters.outputBlockFormatter
     });
 
-    // var getUncle = new Method({
-    //     name: 'getUncle',
-    //     call: uncleCall,
-    //     params: 2,
-    //     inputFormatter: [formatters.inputBlockNumberFormatter, utils.toHex],
-    //     outputFormatter: formatters.outputBlockFormatter,
-    //
-    // });
-
-    // var getCompilers = new Method({
-    //     name: 'getCompilers',
-    //     call: 'platon_getCompilers',
-    //     params: 0
-    // });
-
     var getBlockTransactionCount = new Method({
         name: 'getBlockTransactionCount',
         call: getBlockTransactionCountCall,
@@ -5319,14 +5291,6 @@ var methods = function () {
         inputFormatter: [formatters.inputBlockNumberFormatter],
         outputFormatter: utils.toDecimal
     });
-
-    // var getBlockUncleCount = new Method({
-    //     name: 'getBlockUncleCount',
-    //     call: uncleCountCall,
-    //     params: 1,
-    //     inputFormatter: [formatters.inputBlockNumberFormatter],
-    //     outputFormatter: utils.toDecimal
-    // });
 
     var getTransaction = new Method({
         name: 'getTransaction',
@@ -5401,36 +5365,6 @@ var methods = function () {
         outputFormatter: utils.toDecimal
     });
 
-    // var compileSolidity = new Method({
-    //     name: 'compile.solidity',
-    //     call: 'platon_compileSolidity',
-    //     params: 1
-    // });
-
-    // var compileLLL = new Method({
-    //     name: 'compile.lll',
-    //     call: 'platon_compileLLL',
-    //     params: 1
-    // });
-    //
-    // var compileSerpent = new Method({
-    //     name: 'compile.serpent',
-    //     call: 'platon_compileSerpent',
-    //     params: 1
-    // });
-
-    // var submitWork = new Method({
-    //     name: 'submitWork',
-    //     call: 'platon_submitWork',
-    //     params: 3
-    // });
-
-    // var getWork = new Method({
-    //     name: 'getWork',
-    //     call: 'platon_getWork',
-    //     params: 0
-    // });
-
     var consensusStatus = new Method({
       name: 'consensusStatus',
       call: 'debug_consensusStatus',
@@ -5442,10 +5376,7 @@ var methods = function () {
         getStorageAt,
         getCode,
         getBlock,
-        // getUncle,
-        // getCompilers,
         getBlockTransactionCount,
-        // getBlockUncleCount,
         getTransaction,
         getTransactionFromBlock,
         getTransactionReceipt,
@@ -5456,11 +5387,6 @@ var methods = function () {
         signTransaction,
         sendTransaction,
         sign,
-        // compileSolidity,
-        // compileLLL,
-        // compileSerpent,
-        // submitWork,
-        // getWork,
         consensusStatus
     ];
 };
@@ -5468,19 +5394,6 @@ var methods = function () {
 
 var properties = function () {
     return [
-        // new Property({
-        //     name: 'coinbase',
-        //     getter: 'platon_coinbase'
-        // }),
-        // new Property({
-        //     name: 'mining',
-        //     getter: 'platon_mining'
-        // }),
-        // new Property({
-        //     name: 'hashrate',
-        //     getter: 'platon_hashrate',
-        //     outputFormatter: utils.toDecimal
-        // }),
         new Property({
             name: 'syncing',
             getter: 'platon_syncing',
@@ -5515,14 +5428,6 @@ Eth.prototype.contract = function (abi) {
 Eth.prototype.filter = function (options, callback, filterCreationErrorCallback) {
     return new Filter(options, 'eth', this._requestManager, watches.eth(), formatters.outputLogFormatter, callback, filterCreationErrorCallback);
 };
-
-// Eth.prototype.namereg = function () {
-//     return this.contract(namereg.global.abi).at(namereg.global.address);
-// };
-//
-// Eth.prototype.icapNamereg = function () {
-//     return this.contract(namereg.icap.abi).at(namereg.icap.address);
-// };
 
 Eth.prototype.isSyncing = function (callback) {
     return new IsSyncing(this._requestManager, callback);

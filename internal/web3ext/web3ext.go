@@ -473,42 +473,12 @@ const Miner_JS = `
 web3._extend({
 	property: 'miner',
 	methods: [
-		//new web3._extend.Method({
-		//	name: 'start',
-		//	call: 'miner_start',
-		//	params: 1,
-		//	inputFormatter: [null]
-		//}),
-		//new web3._extend.Method({
-		//	name: 'stop',
-		//	call: 'miner_stop'
-		//}),
-		//new web3._extend.Method({
-		//	name: 'setEtherbase',
-		//	call: 'miner_setEtherbase',
-		//	params: 1,
-		//	inputFormatter: [web3._extend.formatters.inputAddressFormatter]
-		//}),
-		//new web3._extend.Method({
-		//	name: 'setExtra',
-		//	call: 'miner_setExtra',
-		//	params: 1
-		//}),
 		new web3._extend.Method({
 			name: 'setGasPrice',
 			call: 'miner_setGasPrice',
 			params: 1,
 			inputFormatter: [web3._extend.utils.fromDecimal]
 		}),
-		//new web3._extend.Method({
-		//	name: 'setRecommitInterval',
-		//	call: 'miner_setRecommitInterval',
-		//	params: 1,
-		//}),
-		//new web3._extend.Method({
-		//	name: 'getHashrate',
-		//	call: 'miner_getHashrate'
-		//}),
 	],
 	properties: []
 });
