@@ -296,10 +296,6 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool) error 
 		return err
 	}
 	atomic.StoreInt32(&cbft.loading, 1)
-	if err = cbft.wal.Load(cbft.AddJournal); err != nil {
-		return err
-	}
-	atomic.StoreInt32(&cbft.loading, 0)
 
 	go cbft.receiveLoop()
 	go cbft.executeBlockLoop()
@@ -307,6 +303,10 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool) error 
 	go cbft.handler.Start()
 	go cbft.update()
 
+	if err = cbft.wal.Load(cbft.AddJournal); err != nil {
+		return err
+	}
+	atomic.StoreInt32(&cbft.loading, 0)
 	return nil
 }
 
@@ -360,7 +360,7 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 		}
 	}
 
-	// write journal info
+	// write journal msg if cbft is not loading
 	if !cbft.isLoading() {
 		cbft.wal.Write(info)
 	}
