@@ -22,8 +22,10 @@ var (
 	errInvalidProposalAddr        = errors.New("invalid proposal address")
 	errTimestamp                  = errors.New("viewchange timestamp too low")
 	errInvalidViewChangeVote      = errors.New("invalid viewchange vote")
-
-	emptyAddr = common.Address{}
+	errInvalidConfirmNumTooLow    = errors.New("confirm block number lower than local prepare")
+	errViewChangeForked           = errors.New("view change's baseblock is forked")
+	errViewChangeBaseTooLow       = errors.New("local PrepareVote that have been signed higher than BaseBlockNum of view")
+	emptyAddr                     = common.Address{}
 )
 
 type AcceptStatus int
@@ -33,9 +35,6 @@ const (
 	Discard
 	Cache
 )
-
-type blockSynced struct {
-}
 
 type PendingVote map[common.Hash]*prepareVote
 type PendingBlock map[common.Hash]*prepareBlock
@@ -58,6 +57,8 @@ type RoundState struct {
 
 	producerBlocks *ProducerBlocks
 	blockExtMap    *BlockExtMap
+
+	localHighestPrepareVoteNum uint64
 }
 
 func (vv ViewChangeVotes) String() string {
@@ -69,14 +70,14 @@ func (vv ViewChangeVotes) String() string {
 		s += fmt.Sprintf("[addr:%s, vote:%s]", k.String(), v.String())
 	}
 	s += "]"
-	return ""
+	return s
 }
 
 func (rs RoundState) String() string {
 
-	return fmt.Sprintf("[ master:%v, viewChange:%s, viewChangeResp:%s, viewChangeVotes:%s, lastViewChange:%s, lastViewChangeVotes:%s, pendingVotes:%s, pendingBlocks:%s, processingVotes:%s, blockExtMap:%s",
+	return fmt.Sprintf("[ master:%v, viewChange:%s, viewChangeResp:%s, viewChangeVotes:%s, lastViewChange:%s, lastViewChangeVotes:%s, pendingVotes:%s, pendingBlocks:%s, processingVotes:%s, localHighestPrepareVoteNum:%d, blockExtMap:%s",
 		rs.master, rs.viewChange.String(), rs.viewChangeResp.String(), rs.viewChangeVotes.String(), rs.lastViewChange.String(), rs.lastViewChangeVotes.String(),
-		rs.pendingVotes.String(), rs.pendingBlocks.String(), rs.processingVotes.String(), rs.blockExtMap.BlockString())
+		rs.pendingVotes.String(), rs.pendingBlocks.String(), rs.processingVotes.String(), rs.localHighestPrepareVoteNum, rs.blockExtMap.BlockString())
 }
 
 func (pv PendingVote) Add(hash common.Hash, vote *prepareVote) {
@@ -153,6 +154,14 @@ func (cbft *Cbft) init() {
 	log.Info("Current block", "number", cbft.blockChain.CurrentBlock().Number())
 	cbft.clear()
 }
+
+func (cbft *Cbft) SetLocalHighestPrepareNum(num uint64) {
+	if cbft.localHighestPrepareVoteNum < num {
+		cbft.localHighestPrepareVoteNum = num
+	}
+	cbft.log.Debug("SetLocalHighestPrepareNum", "local", cbft.localHighestPrepareVoteNum, "number", num)
+}
+
 func (cbft *Cbft) checkViewChangeVotes(votes []*viewChangeVote) error {
 	if cbft.viewChange == nil {
 		log.Error("ViewChange is nil, check prepareVotes failed")
@@ -175,7 +184,6 @@ func (cbft *Cbft) checkViewChangeVotes(votes []*viewChangeVote) error {
 }
 
 func (cbft *Cbft) verifyValidatorSign(validatorIndex uint32, validatorAddr common.Address, hash common.Hash, signature []byte) error {
-	return nil
 	if index, err := cbft.dpos.AddressIndex(validatorAddr); err == nil && uint32(index) == validatorIndex {
 		//todo verify sign
 		if err := verifySign(cbft.dpos.NodeID(index), hash, signature); err != nil {
@@ -343,8 +351,6 @@ func (cbft *Cbft) AcceptPrepareVote(vote *prepareVote) AcceptStatus {
 }
 
 func (cbft *Cbft) ClearPending() {
-	//cbft.mux.Lock()
-	//defer cbft.mux.Unlock()
 	cbft.clearPending()
 }
 
@@ -355,8 +361,6 @@ func (cbft *Cbft) clearPending() {
 }
 
 func (cbft *Cbft) ClearViewChange() {
-	//cbft.mux.Lock()
-	//defer cbft.mux.Unlock()
 	cbft.clearViewChange()
 }
 
@@ -368,8 +372,6 @@ func (cbft *Cbft) clearViewChange() {
 }
 
 func (cbft *Cbft) Clear() {
-	//cbft.mux.Lock()
-	//defer cbft.mux.Unlock()
 	cbft.clear()
 }
 
@@ -436,6 +438,13 @@ func (cbft *Cbft) AddProcessingVote(nodeId discover.NodeID, vote *prepareVote) {
 func (cbft *Cbft) newViewChange() (*viewChange, error) {
 
 	ext := cbft.getHighestConfirmed()
+
+	if ext.number != cbft.localHighestPrepareVoteNum {
+		//todo ask prepare vote to other, need optimize
+		cbft.handler.SendAllConsensusPeer(&getHighestPrepareBlock{Lowest: cbft.localHighestPrepareVoteNum})
+
+		return nil, errInvalidConfirmNumTooLow
+	}
 	index, addr, err := cbft.dpos.NodeIndexAddress(cbft.config.NodeID)
 	if err != nil {
 		return nil, errInvalidatorCandidateAddress
@@ -469,10 +478,31 @@ func (cbft *Cbft) VerifyAndViewChange(view *viewChange) error {
 		return errTimestamp
 	}
 
-	if cbft.getHighestConfirmed().number != view.BaseBlockNum {
-		cbft.log.Error(fmt.Sprintf("View's block is not found hash:%s, number:%d", view.BaseBlockHash.TerminalString(), view.BaseBlockNum))
+	if cbft.localHighestPrepareVoteNum > view.BaseBlockNum {
+		cbft.log.Error(fmt.Sprintf("Local highest PrepareVote's blocknum higher than view's BaseBlockNum hash:%s, number:%d localHighest:%d",
+			view.BaseBlockHash.TerminalString(), view.BaseBlockNum, cbft.localHighestPrepareVoteNum))
+		return errViewChangeBaseTooLow
+	}
+
+	ext := cbft.getHighestConfirmed()
+
+	if ext.number == view.BaseBlockNum {
+		if ext.block.Hash() != view.BaseBlockHash {
+			cbft.log.Error(fmt.Sprintf("View's block is forked hash:%s, number:%d confirmed hash:%s, number %d localHighest:%d",
+				view.BaseBlockHash.TerminalString(), view.BaseBlockNum, ext.block.Hash(), ext.number, cbft.localHighestPrepareVoteNum))
+			return errViewChangeForked
+		}
+	} else if ext.number > view.BaseBlockNum {
+		cbft.log.Warn(fmt.Sprintf("View change block too lower 2/3 block hash:%s num:%d, view irr block hash:%s num:%d",
+			ext.block.Hash().TerminalString(),
+			ext.number, view.BaseBlockHash.TerminalString(), view.BaseBlockNum))
+		return errViewChangeBlockNumTooLower
+	} else {
+		cbft.log.Error(fmt.Sprintf("View's block is not found hash:%s, number:%d confirmed:%d, localHighest:%d",
+			view.BaseBlockHash.TerminalString(), view.BaseBlockNum, ext.number, cbft.localHighestPrepareVoteNum))
 		return errNotFoundViewBlock
 	}
+
 	if view.BaseBlockNum != 0 && len(view.BaseBlockPrepareVote) < cbft.getThreshold() {
 		cbft.log.Error("View's prepare vote < 2f", "view", view.String())
 		return errTwoThirdPrepareVotes
@@ -485,11 +515,6 @@ func (cbft *Cbft) VerifyAndViewChange(view *viewChange) error {
 		}
 	}
 
-	if cbft.getHighestConfirmed().number > view.BaseBlockNum {
-		cbft.log.Warn(fmt.Sprintf("View change block too lower 2/3 block hash:%s num:%d, view irr block hash:%s num:%d", cbft.getHighestConfirmed().block.Hash().TerminalString(),
-			cbft.getHighestConfirmed().number, view.BaseBlockHash.TerminalString(), view.BaseBlockNum))
-		return errViewChangeBlockNumTooLower
-	}
 	return nil
 }
 
@@ -636,6 +661,13 @@ func (pv *prepareVoteSet) Merge(vs *prepareVoteSet) {
 		pv.votes[k] = v
 		pv.voteBits.setIndex(k, true)
 	}
+}
+
+func (pv *prepareVoteSet) IsMaj23() bool {
+	if pv == nil {
+		return false
+	}
+	return uint32(len(pv.votes)) >= pv.voteBits.Size()
 }
 
 func (pv *prepareVoteSet) Signs() []common.BlockConfirmSign {
@@ -862,12 +894,18 @@ func (bm *BlockExtMap) Add(hash common.Hash, number uint64, blockExt *BlockExt) 
 		if ext, ok := extMap[hash]; ok {
 			log.Debug(fmt.Sprintf("hash:%s, number:%d", hash.TerminalString(), number))
 			ext.Merge(blockExt)
+			if ext.prepareVotes.IsMaj23() {
+				bm.removeFork(number, hash)
+			}
 			if ext.block != nil {
 				bm.fixChain(ext)
 			}
 		} else {
 			log.Debug(fmt.Sprintf("hash:%s, number:%d", hash.TerminalString(), number))
 			extMap[hash] = blockExt
+			if blockExt.prepareVotes.IsMaj23() {
+				bm.removeFork(number, hash)
+			}
 			if blockExt.block != nil {
 				bm.fixChain(blockExt)
 			}
@@ -878,8 +916,31 @@ func (bm *BlockExtMap) Add(hash common.Hash, number uint64, blockExt *BlockExt) 
 		extMap := make(map[common.Hash]*BlockExt)
 		extMap[hash] = blockExt
 		bm.blocks[number] = extMap
+		if blockExt.prepareVotes.IsMaj23() {
+			bm.removeFork(number, hash)
+		}
 		if blockExt.block != nil {
 			bm.fixChain(blockExt)
+		}
+	}
+}
+
+func (bm *BlockExtMap) removeFork(number uint64, hash common.Hash) {
+	if extMap, ok := bm.blocks[number]; ok {
+		for k, v := range extMap {
+			if k != hash {
+				if v.prepareVotes.IsMaj23() {
+					panic(fmt.Sprintf("forked block has 2f+1 prepare votes:%s", k.TerminalString()))
+				}
+				if v.parent != nil {
+					delete(v.parent.children, k)
+				}
+				if v.children != nil {
+					for _, p := range v.children {
+						p.parent = nil
+					}
+				}
+			}
 		}
 	}
 }

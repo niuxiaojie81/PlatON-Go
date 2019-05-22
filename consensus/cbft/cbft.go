@@ -78,6 +78,8 @@ var (
 	cbftVersion      = byte(0x01)
 
 	maxBlockDist = uint64(192)
+
+	msgQueuesLimit = 2048
 )
 
 type Cbft struct {
@@ -207,9 +209,9 @@ func (cbft *Cbft) getHighestLogical() *BlockExt {
 func (cbft *Cbft) ReceivePeerMsg(msg *MsgInfo) {
 	select {
 	case cbft.peerMsgCh <- msg:
-		cbft.log.Debug("[Method:ReceivePeerMsg] received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
+		cbft.log.Debug("Received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
 	case <-cbft.exitCh:
-		cbft.log.Error("[Method:ReceivePeerMsg] cbft exit")
+		cbft.log.Error("Cbft exit")
 	}
 }
 
@@ -278,6 +280,8 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool) error 
 		}
 
 	}
+
+	cbft.localHighestPrepareVoteNum = current.number
 
 	cbft.blockExtMap = NewBlockExtMap(current, cbft.getThreshold())
 	cbft.saveBlockExt(currentBlock.Hash(), current)
@@ -432,6 +436,11 @@ END:
 	} else {
 		// need send viewchange
 		cbft.OnSendViewChange()
+
+		oldCount := viewChangeGauage.Value()
+		viewChangeGauage.Update(oldCount+1)
+		viewChangeCounter.Inc(1)
+
 		shouldSeal <- errTwoThirdViewchangeVotes
 	}
 }
@@ -644,6 +653,8 @@ func (cbft *Cbft) OnViewChangeTimeout(view *viewChange) {
 			cbft.resetViewChange()
 		}
 	}
+
+	viewChangeTimeoutMeter.Mark(1)
 }
 
 //Current view change timeout
@@ -660,10 +671,12 @@ func (cbft *Cbft) OnViewChangeVoteTimeout(view *viewChangeVote) {
 			cbft.needPending = true
 		}
 	}
+
+	viewChangeVoteTimeoutMeter.Mark(1)
 }
 
 func (cbft *Cbft) OnPrepareBlockHash(peerID discover.NodeID, msg *prepareBlockHash) error {
-	cbft.log.Debug("[Method:OnPrepareBlockHash] Received message of prepareBlockHash", "FromPeerId", peerID.String(),
+	cbft.log.Debug("Received message of prepareBlockHash", "FromPeerId", peerID.String(),
 		"BlockHash", msg.Hash.Hex(), "Number", msg.Number)
 	// Prerequisite: Nodes with PrepareBlock data can forward Hash
 	cbft.handler.Send(peerID, &getPrepareBlock{Hash: msg.Hash, Number: msg.Number})
@@ -754,6 +767,7 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 
 	cbft.bp.InternalBP().Seal(context.TODO(), current, &cbft.RoundState)
 	cbft.bp.InternalBP().NewHighestLogicalBlock(context.TODO(), current, &cbft.RoundState)
+	cbft.SetLocalHighestPrepareNum(current.number)
 	if len(cbft.dpos.primaryNodeList) == 1 {
 		cbft.log.Debug("Single node mode, confirm now")
 		//only one consensus node, so, each block is highestConfirmed. (lock is needless)
@@ -797,10 +811,13 @@ func (cbft *Cbft) ShouldSeal(curTime int64) (bool, error) {
 		if peersCount < cbft.getThreshold() {
 			inturn = false
 		}
-
 	}
 	//cbft.log.Debug("Should Seal", "time", curTime, "inturn", inturn, "peers", len(cbft.netLatencyMap))
 	if inturn {
+		if cbft.lastViewChange != nil {
+			lastViewChangeTime := time.Unix(int64(cbft.lastViewChange.Timestamp), 0)
+			viewChangeTimer.UpdateSince(lastViewChangeTime)
+		}
 		// if first block of mine, send viewchange message, return false
 		// if viewchange success , return true
 		// if viewchange failed , wait timeout until re-send message
@@ -831,6 +848,10 @@ func (cbft *Cbft) OnSendViewChange() {
 	}
 	cbft.log.Debug("Send new view", "view", view.String())
 	cbft.handler.SendAllConsensusPeer(view)
+
+	// gauage
+	blockHighNumConfirmedGauage.Update(int64(cbft.getHighestConfirmed().number))
+	blockHighNumLogicGauage.Update(int64(cbft.getHighestLogical().number))
 
 	time.AfterFunc(time.Duration(cbft.config.Period)*time.Second, func() {
 		cbft.viewChangeTimeoutCh <- view
@@ -925,6 +946,7 @@ func (cbft *Cbft) flushReadyBlock() bool {
 	}
 
 	cbft.log.Debug("Flush block", "total", len(flush))
+	blockMinedMeter.Mark(int64(len(flush)))
 	cbft.storeBlocks(flush)
 	chainBlock := cbft.blockChain.CurrentBlock()
 	highestBlockHash, highestBlockNum := chainBlock.Hash(), chainBlock.NumberU64()
@@ -934,6 +956,9 @@ func (cbft *Cbft) flushReadyBlock() bool {
 	cbft.log.Debug("Set new root", "hash", newRoot.block.Hash(), "number", newRoot.block.NumberU64())
 	cbft.rootIrreversible.Store(newRoot)
 	cbft.bp.InternalBP().NewHighestRootBlock(context.TODO(), newRoot, &cbft.RoundState)
+
+	blockConfirmedTimer.UpdateSince(time.Unix(int64(newRoot.timestamp), 0))
+
 	return true
 
 }
@@ -991,7 +1016,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 
 		oldViewChange := cbft.viewChange
 		viewChange := request.View
-		if cbft.viewChange == nil || cbft.viewChange.Timestamp != viewChange.Timestamp {
+		if cbft.viewChange == nil || cbft.viewChange.Timestamp <= viewChange.Timestamp {
 			cbft.log.Debug("New PrepareBlock is not match current view, need change")
 			cbft.viewChange = viewChange
 		}
@@ -999,6 +1024,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 			cbft.bp.PrepareBP().InvalidViewChangeVote(bpCtx, request, err, &cbft.RoundState)
 			cbft.viewChange = oldViewChange
 			cbft.log.Error("Receive prepare invalid block", "err", err)
+			viewChangeVoteVerifyFailMeter.Mark(1)
 			return err
 		}
 
@@ -1051,6 +1077,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 		if propagation && cbft.needBroadcast(nodeId, request) {
 			go cbft.handler.SendBroadcast(&prepareBlockHash{Hash: request.Block.Hash(), Number: request.Block.NumberU64()})
 		}
+		consensusJoinCounter.Inc(1)
 
 		return cbft.OnNewBlock(ext)
 	case Cache:
@@ -1123,6 +1150,8 @@ func (cbft *Cbft) prepareVoteReceiver(peerID discover.NodeID, vote *prepareVote)
 		if h := cbft.blockExtMap.FindHighestConfirmedWithHeader(); h != nil {
 			cbft.bp.InternalBP().NewHighestConfirmedBlock(context.TODO(), ext, &cbft.RoundState)
 			cbft.highestConfirmed.Store(h)
+			blockConfirmedMeter.Mark(1)
+			blockConfirmedTimer.UpdateSince(time.Unix(int64(ext.timestamp), 0))
 		}
 		cbft.log.Debug("Send Confirmed Block", "hash", ext.block.Hash(), "number", ext.block.NumberU64())
 		cbft.handler.SendAllConsensusPeer(&confirmedPrepareBlock{Hash: ext.block.Hash(), Number: ext.block.NumberU64(), VoteBits: ext.prepareVotes.voteBits})
@@ -1158,6 +1187,7 @@ func (cbft *Cbft) OnExecutedBlock(bs *ExecuteBlockStatus) {
 				cbft.bp.InternalBP().NewHighestConfirmedBlock(context.TODO(), bs.block, &cbft.RoundState)
 				cbft.log.Debug("Send Confirmed Block", "hash", bs.block.block.Hash(), "number", bs.block.block.NumberU64())
 				cbft.handler.SendAllConsensusPeer(&confirmedPrepareBlock{Hash: bs.block.block.Hash(), Number: bs.block.block.NumberU64(), VoteBits: bs.block.prepareVotes.voteBits})
+				blockConfirmedMeter.Mark(1)
 			}
 
 			if cbft.viewChange != nil && len(cbft.viewChangeVotes) >= cbft.getThreshold() && cbft.blockExtMap.head.number != cbft.viewChange.BaseBlockNum {
@@ -1173,7 +1203,10 @@ func (cbft *Cbft) sendPrepareVote(ext *BlockExt) {
 	cbft.log.Debug("Need send prepare vote", "hash", ext.block.Hash(), "number", ext.block.NumberU64())
 
 	index, addr, err := cbft.dpos.NodeIndexAddress(cbft.config.NodeID)
-
+	if ext.number <= cbft.localHighestPrepareVoteNum {
+		cbft.log.Warn("May happen double prepare vote")
+		return
+	}
 	if err == nil {
 		pv := &prepareVote{
 			Timestamp:      ext.view.Timestamp,
@@ -1185,6 +1218,7 @@ func (cbft *Cbft) sendPrepareVote(ext *BlockExt) {
 
 		sign, err := cbft.signFn(pv.Hash[:])
 		if err == nil {
+			cbft.SetLocalHighestPrepareNum(pv.Number)
 			pv.Signature.SetBytes(sign)
 			if cbft.viewChange != nil && !cbft.agreeViewChange() && cbft.viewChange.BaseBlockNum < ext.block.NumberU64() {
 				cbft.pendingVotes.Add(pv.Hash, pv)
@@ -1213,11 +1247,11 @@ func (cbft *Cbft) executeBlock(blocks []*BlockExt) {
 
 		start := time.Now()
 		err := cbft.execute(ext, ext.parent)
-
 		if err != nil {
 			cbft.bp.InternalBP().InvalidBlock(context.TODO(), ext.block.Hash(), ext.block.NumberU64(), err)
 		}
 		cbft.bp.InternalBP().ExecuteBlock(context.TODO(), ext.block.Hash(), ext.block.NumberU64(), time.Now().Sub(start))
+		blockExecuteTimer.UpdateSince(start)
 		//send syncState after execute block
 		ext.SetSyncState(err)
 
@@ -1275,6 +1309,7 @@ func (cbft *Cbft) execute(ext *BlockExt, parent *BlockExt) error {
 	state, err := cbft.blockChainCache.MakeStateDB(parent.block)
 	if err != nil {
 		cbft.log.Error("execute block error, cannot make state based on parent", "err", err, "block", ext.String(), "parent", parent.String(), "err", err)
+		blockVerifyFailMeter.Mark(1)
 		return errors.New("execute block error")
 	}
 
@@ -1290,6 +1325,7 @@ func (cbft *Cbft) execute(ext *BlockExt, parent *BlockExt) error {
 
 	} else {
 		cbft.log.Error("execute block error", "err", err, "block", ext.String(), "parent", parent.String())
+		blockVerifyFailMeter.Mark(1)
 		return errors.New("execute block error")
 	}
 	return nil
@@ -1607,7 +1643,7 @@ func (cbft *Cbft) OnPrepareVote(peerID discover.NodeID, vote *prepareVote, propa
 
 	// rule:
 	if propagation && cbft.needBroadcast(peerID, vote) {
-		cbft.log.Debug("[Method:OnPrepareVote] broadcast the message of prepareVote", "FromPeerId", peerID.String())
+		cbft.log.Debug("Broadcast the message of prepareVote", "FromPeerId", peerID.String())
 		go cbft.handler.SendBroadcast(vote)
 	}
 
@@ -1815,6 +1851,7 @@ func verifySign(expectedNodeID discover.NodeID, sealHash common.Hash, signature 
 	if bytes.Equal(nodeID.Bytes(), expectedNodeID.Bytes()) {
 		return nil
 	}
+	signatureVerifyFailMeter.Mark(1)
 	return fmt.Errorf("verify sign failed")
 }
 
@@ -1963,10 +2000,12 @@ func (cbft *Cbft) needBroadcast(nodeId discover.NodeID, msg Message) bool {
 	for _, peer := range peers {
 		if peer.knownMessageHash.Contains(msg.MsgHash()) {
 			cbft.log.Debug("needn't to broadcast", "type", reflect.TypeOf(msg), "hash", msg.MsgHash(), "BHash", msg.BHash().TerminalString())
+			messageRepeatMeter.Mark(1)
 			return false
 		}
 	}
 	cbft.log.Debug("need to broadcast", "type", reflect.TypeOf(msg), "hash", msg.MsgHash(), "BHash", msg.BHash().TerminalString())
+	messageGossipMeter.Mark(1)
 	return true
 }
 
