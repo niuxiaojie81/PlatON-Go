@@ -3,13 +3,14 @@ package cbft
 import (
 	"context"
 	"fmt"
+	sort2 "sort"
+	"time"
+
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
 	"github.com/PlatONnetwork/PlatON-Go/log"
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/pkg/errors"
-	sort2 "sort"
-	"time"
 )
 
 var (
@@ -20,6 +21,7 @@ var (
 	errBlockHashNotEqual          = errors.New("block hash not equal")
 	errViewChangeBlockNumTooLower = errors.New("block number too lower")
 	errInvalidProposalAddr        = errors.New("invalid proposal address")
+	errRecvViewTimeout            = errors.New("receive viewchange timeout")
 	errTimestamp                  = errors.New("viewchange timestamp too low")
 	errInvalidViewChangeVote      = errors.New("invalid viewchange vote")
 	errInvalidConfirmNumTooLow    = errors.New("confirm block number lower than local prepare")
@@ -170,7 +172,7 @@ func (cbft *Cbft) checkViewChangeVotes(votes []*viewChangeVote) error {
 
 	for _, vote := range votes {
 		if vote.EqualViewChange(cbft.viewChange) {
-			if err := cbft.verifyValidatorSign(vote.ValidatorIndex, vote.ValidatorAddr, vote.BlockHash, vote.Signature[:]); err != nil {
+			if err := cbft.verifyValidatorSign(cbft.viewChange.BaseBlockNum, vote.ValidatorIndex, vote.ValidatorAddr, vote, vote.Signature[:]); err != nil {
 				log.Error("Verify validator failed", "vote", vote.String(), "err", err)
 				return errInvalidViewChangeVotes
 			}
@@ -183,11 +185,18 @@ func (cbft *Cbft) checkViewChangeVotes(votes []*viewChangeVote) error {
 	return nil
 }
 
-func (cbft *Cbft) verifyValidatorSign(validatorIndex uint32, validatorAddr common.Address, hash common.Hash, signature []byte) error {
-	if index, err := cbft.dpos.AddressIndex(validatorAddr); err == nil && uint32(index) == validatorIndex {
-		//todo verify sign
-		if err := verifySign(cbft.dpos.NodeID(index), hash, signature); err != nil {
+func (cbft *Cbft) verifyValidatorSign(blockNumber uint64, validatorIndex uint32, validatorAddr common.Address, msg ConsensusMsg, signature []byte) error {
+	vds, err := cbft.agency.GetValidator(blockNumber)
+	if err != nil {
+		return err
+	}
+	if vn, err := vds.AddressIndex(validatorAddr); err == nil && uint32(vn.Index) == validatorIndex {
+		buf, err := msg.CannibalizeBytes()
+		if err != nil {
 			return err
+		}
+		if !vn.Verify(buf, signature) {
+			return errSign
 		}
 	} else {
 		return err
@@ -445,9 +454,9 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 
 		return nil, errInvalidConfirmNumTooLow
 	}
-	index, addr, err := cbft.dpos.NodeIndexAddress(cbft.config.NodeID)
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
 	if cbft.simulator.SL3001() || cbft.simulator.SL3002() {
-		index, addr, err = cbft.dpos.NodeIndexAddressForAimulator(cbft.config.NodeID)
+		validator, err = cbft.getValidators().NodeIndexAddressForSimulator(cbft.config.NodeID)
 	}
 	if err != nil {
 		return nil, errInvalidatorCandidateAddress
@@ -456,8 +465,8 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 		Timestamp:     uint64(time.Now().Unix()),
 		BaseBlockNum:  ext.block.NumberU64(),
 		BaseBlockHash: ext.block.Hash(),
-		ProposalIndex: uint32(index),
-		ProposalAddr:  addr,
+		ProposalIndex: uint32(validator.Index),
+		ProposalAddr:  validator.Address,
 	}
 	if cbft.simulator.SL3003() {
 		view.BaseBlockNum = ext.block.NumberU64() + 1
@@ -467,10 +476,10 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 	var sign []byte
 	if cbft.simulator.SL3005() {
 		view.Timestamp = uint64(time.Now().UnixNano() + 1000000000) // add 1s
-		errHash := common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
-		sign, err = cbft.signFn(errHash[:])
+		view.BaseBlockHash = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
+		sign, err = cbft.signMsg(view)
 	} else {
-		sign, err = cbft.signFn(view.BaseBlockHash[:])
+		sign, err = cbft.signMsg(view)
 	}
 	if err != nil {
 		return nil, err
@@ -487,11 +496,17 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 	cbft.resetViewChange()
 	cbft.viewChange = view
 	cbft.master = true
-	log.Debug("Make new view change", "view", view.String())
+	log.Debug("Make new view change", "view", view.String(), "msgHash", view.MsgHash().TerminalString())
 	return view, nil
 }
 
 func (cbft *Cbft) VerifyAndViewChange(view *viewChange) error {
+
+	now := time.Now().UnixNano() / 1e6
+	if !cbft.isLegal(now, view.ProposalAddr) {
+		cbft.log.Error("Receive view change timeout", "current", now, "remote", view.Timestamp)
+		return errRecvViewTimeout
+	}
 
 	if cbft.viewChange != nil && cbft.viewChange.Timestamp > view.Timestamp {
 		cbft.log.Error("Verify view change failed", "local timestamp", cbft.viewChange.Timestamp, "remote", view.Timestamp)
@@ -529,7 +544,7 @@ func (cbft *Cbft) VerifyAndViewChange(view *viewChange) error {
 	}
 
 	for _, vote := range view.BaseBlockPrepareVote {
-		if err := cbft.verifyValidatorSign(vote.ValidatorIndex, vote.ValidatorAddr, vote.Hash, vote.Signature[:]); err != nil {
+		if err := cbft.verifyValidatorSign(view.BaseBlockNum, vote.ValidatorIndex, vote.ValidatorAddr, vote, vote.Signature[:]); err != nil {
 			cbft.log.Error("Verify validator failed", "vote", vote.String(), "err", err)
 			return errInvalidPrepareVotes
 		}
@@ -546,20 +561,28 @@ func (cbft *Cbft) setViewChange(view *viewChange) {
 	cbft.master = false
 }
 
+func (cbft *Cbft) afterUpdateValidator() {
+	if _, err := cbft.getValidators().NodeIndex(cbft.config.NodeID); err != nil {
+		cbft.master = false
+	}
+}
+
 func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote) error {
 	log.Debug("Receive view change vote", "peer", peerID, "vote", vote.String())
 	bpCtx := context.WithValue(context.Background(), "peer", peerID)
-
+	if cbft.needBroadcast(peerID, vote) {
+		go cbft.handler.SendBroadcast(vote)
+	}
 	//cbft.mux.Lock()
 	//defer cbft.mux.Unlock()
 	hadAgree := cbft.agreeViewChange()
 	if cbft.viewChange != nil && vote.EqualViewChange(cbft.viewChange) {
-		if err := cbft.verifyValidatorSign(vote.ValidatorIndex, vote.ValidatorAddr, vote.BlockHash, vote.Signature[:]); err == nil {
+		if err := cbft.verifyValidatorSign(cbft.viewChange.BaseBlockNum, vote.ValidatorIndex, vote.ValidatorAddr, vote, vote.Signature[:]); err == nil {
 			cbft.viewChangeVotes[vote.ValidatorAddr] = vote
 			log.Info("Agree receive view change response", "peer", peerID, "prepareVotes", len(cbft.viewChangeVotes))
 		} else {
 			cbft.log.Warn("Verify sign failed", "peer", peerID, "vote", vote.String())
-			return errSign
+			return err
 		}
 	} else {
 		switch {
@@ -580,7 +603,17 @@ func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote)
 		}
 	}
 
+	if err := cbft.evPool.AddViewChangeVote(vote); err != nil {
+		switch err.(type) {
+		case *DuplicateViewChangeVoteEvidence:
+		case *TimestampViewChangeVoteEvidence:
+			cbft.log.Warn("Receive TimestampViewChangeVoteEvidence msg", "err", err.Error())
+			return err
+		}
+	}
+
 	if !hadAgree && cbft.agreeViewChange() {
+		viewChangeVoteFulfillTimer.UpdateSince(time.Unix(int64(cbft.viewChange.Timestamp), 0))
 		cbft.wal.UpdateViewChange(&ViewChangeMessage{
 			Hash:   vote.BlockHash,
 			Number: vote.BlockNum,
@@ -590,8 +623,8 @@ func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote)
 		cbft.producerBlocks = NewProducerBlocks(cbft.config.NodeID, cbft.viewChange.BaseBlockNum)
 		cbft.clearPending()
 		cbft.ClearChildren(cbft.viewChange.BaseBlockHash, cbft.viewChange.BaseBlockNum, cbft.viewChange.Timestamp)
-
 	}
+
 	log.Info("Receive viewchange vote", "msg", vote.String(), "had votes", len(cbft.viewChangeVotes))
 	return nil
 }
@@ -617,12 +650,12 @@ func (cbft *Cbft) resetViewChange() {
 }
 
 func (cbft *Cbft) broadcastBlock(ext *BlockExt) {
-	index, addr, err := cbft.dpos.NodeIndexAddress(cbft.config.NodeID)
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
 	if err != nil {
 		return
 	}
-	ext.proposalIndex, ext.proposalAddr = uint32(index), addr
-	p := &prepareBlock{Block: ext.block, ProposalIndex: uint32(index), ProposalAddr: addr}
+	ext.proposalIndex, ext.proposalAddr = uint32(validator.Index), validator.Address
+	p := &prepareBlock{Block: ext.block, ProposalIndex: uint32(validator.Index), ProposalAddr: validator.Address}
 
 	cbft.addPrepareBlockVote(p)
 	if cbft.viewChange != nil && !cbft.agreeViewChange() && cbft.viewChange.BaseBlockNum < ext.block.NumberU64() {
@@ -974,6 +1007,7 @@ func (bm *BlockExtMap) fixChain(blockExt *BlockExt) {
 	if blockExt.prepareVotes.Len() >= bm.threshold {
 		log.Debug("Block is confirmed", "hash", blockExt.block.Hash(), "number", blockExt.number)
 		blockExt.isConfirmed = true
+		blockMinedTimer.UpdateSince(common.MillisToTime(blockExt.rcvTime))
 	}
 
 	parent := bm.findParent(blockExt.block.ParentHash(), blockExt.number)

@@ -20,12 +20,13 @@ package eth
 import (
 	"errors"
 	"fmt"
-	"github.com/PlatONnetwork/PlatON-Go/consensus/cbft"
-	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"math/big"
 	"runtime"
 	"sync"
 	"sync/atomic"
+
+	"github.com/PlatONnetwork/PlatON-Go/consensus/cbft"
+	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 
 	"github.com/PlatONnetwork/PlatON-Go/accounts"
 	"github.com/PlatONnetwork/PlatON-Go/common"
@@ -50,6 +51,19 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/rlp"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
 )
+
+var indexMock = map[int][]int{
+	1 : []int{2, 3, 4},
+	2 : []int{5, 6, 7},
+	3 : []int{8, 9, 10},
+	4 : []int{11,12, 13},
+	5 : []int{14, 15, 16},
+	6 : []int{17, 18, 19},
+	7 : []int{},
+	8 : []int{20, 21, 22},
+	9 : []int{},
+	10 : []int{23, 25, 25},
+}
 
 type LesServer interface {
 	Start(srvr *p2p.Server)
@@ -204,9 +218,25 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	eth.miner.SetExtra(makeExtraData(config.MinerExtraData))
 
 	if bft, ok := eth.engine.(consensus.Bft); ok {
-		if cbft, ok := bft.(*cbft.Cbft); ok {
-			cbft.SetBlockChainCache(blockChainCache)
-			if err := cbft.Start(eth.blockchain, eth.txPool); err != nil {
+		if cbftEngine, ok := bft.(*cbft.Cbft); ok {
+			cbftEngine.SetBlockChainCache(blockChainCache)
+
+			var agency cbft.Agency
+			// validatorMode:
+			// - static (default)
+			// - inner (via inner contract)
+			// - ppos
+			log.Debug("Validator mode", "mode", chainConfig.Cbft.ValidatorMode)
+			if chainConfig.Cbft.ValidatorMode == "" || chainConfig.Cbft.ValidatorMode == "static" {
+				agency = cbft.NewStaticAgency(chainConfig.Cbft.InitialNodes)
+			} else if chainConfig.Cbft.ValidatorMode == "inner" {
+				blocksPerNode := int(int64(chainConfig.Cbft.Duration) / int64(chainConfig.Cbft.Period))
+				offset := blocksPerNode * 2
+				agency = cbft.NewInnerAgency(chainConfig.Cbft.InitialNodes, eth.blockchain, blocksPerNode, offset)
+			}
+
+			if err := cbftEngine.Start(eth.blockchain, eth.txPool, agency); err != nil {
+				log.Error("Init cbft consensus engine fail", "error", err)
 				return nil, errors.New("Failed to init cbft consensus engine")
 			}
 		}
@@ -270,6 +300,7 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 		chainConfig.Cbft.LegalCoefficient = cbftConfig.LegalCoefficient
 		chainConfig.Cbft.Duration = cbftConfig.Duration
 		chainConfig.Cbft.Simulator = cbftConfig.Simulator
+		chainConfig.Cbft.BlockInterval = cbftConfig.BlockInterval
 		return cbft.New(chainConfig.Cbft, eventMux, ctx)
 	}
 	return nil
@@ -525,17 +556,49 @@ func (s *Ethereum) Start(srvr *p2p.Server) error {
 	if cbftEngine, ok := s.engine.(consensus.Bft); ok {
 		cbftEngine.SetPrivateKey(srvr.Config.PrivateKey)
 		if flag := cbftEngine.IsConsensusNode(); flag {
+			// self: s.chainConfig.Cbft.NodeID
+			// list: s.chainConfig.Cbft.InitialNodes
+			// dep: test
+			/*ok, idxs := needAdd(s.chainConfig.Cbft.NodeID, s.chainConfig.Cbft.InitialNodes)
+			for idx, n := range s.chainConfig.Cbft.InitialNodes {
+				if idxs == nil {
+					break
+				}
+				for _, i := range idxs {
+					if ok && i == (idx+1) {
+						srvr.AddConsensusPeer(discover.NewNode(n.ID, n.IP, n.UDP, n.TCP))
+						break
+					}
+				}
+			}*/
 			for _, n := range s.chainConfig.Cbft.InitialNodes {
 				srvr.AddConsensusPeer(discover.NewNode(n.ID, n.IP, n.UDP, n.TCP))
 			}
 		}
 		s.StartMining(1)
 	}
+	srvr.StartWatching(s.eventMux)
 
 	if s.lesServer != nil {
 		s.lesServer.Start(srvr)
 	}
 	return nil
+}
+
+// mock
+func needAdd(self discover.NodeID, nodes []discover.Node) (bool, []int) {
+	selfIndex := -1
+	for idx, n := range nodes {
+		if n.ID.TerminalString() == self.TerminalString() {
+			selfIndex = idx
+			break
+		}
+	}
+	if selfIndex == -1 {
+		return false, nil
+	}
+	selfIndex++
+	return true, indexMock[selfIndex]
 }
 
 // Stop implements node.Service, terminating all internal goroutines used by the

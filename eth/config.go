@@ -48,6 +48,7 @@ var DefaultConfig = Config{
 		MaxLatency:       600,
 		LegalCoefficient: 1.0,
 		Duration:         10,
+		BlockInterval:    100,
 	},
 	NetworkId:     1,
 	LightPeers:    100,
@@ -147,6 +148,7 @@ type CbftConfig struct {
 	LegalCoefficient float64  `json:"legalCoefficient"`
 	Duration         int64    `json:"duration"`
 	Simulator        []uint16 `json:"simulator"`
+	BlockInterval    uint64   `json:"-"`
 }
 
 type configMarshaling struct {
