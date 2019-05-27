@@ -466,8 +466,7 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 		ProposalAddr:  validator.Address,
 	}
 
-	var sign []byte
-	sign, err = cbft.signMsg(view)
+	sign, err := cbft.signMsg(view)
 	if err != nil {
 		return nil, err
 	}

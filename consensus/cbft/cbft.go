@@ -34,7 +34,7 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/params"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -754,11 +754,7 @@ func (cbft *Cbft) Seal(chain consensus.ChainReader, block *types.Block, sealResu
 	}
 
 	// sign the seal hash
-	var (
-		sign []byte
-		err  error
-	)
-	sign, err = cbft.signFn(header.SealHash().Bytes())
+	sign, err := cbft.signFn(header.SealHash().Bytes())
 	if err != nil {
 		log.Error("Seal block sign failed", "err", err)
 		return err
