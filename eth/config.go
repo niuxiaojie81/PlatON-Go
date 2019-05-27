@@ -147,7 +147,6 @@ type CbftConfig struct {
 	MaxLatency       int64    `json:"maxLatency"`
 	LegalCoefficient float64  `json:"legalCoefficient"`
 	Duration         int64    `json:"duration"`
-	Simulator        []uint16 `json:"simulator"`
 	BlockInterval    uint64   `json:"-"`
 }
 

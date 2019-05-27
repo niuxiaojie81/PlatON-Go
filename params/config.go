@@ -226,7 +226,6 @@ type CbftConfig struct {
 	InitialNodes  []discover.Node   `json:"initialNodes,omitempty"`
 	NodeID        discover.NodeID   `json:"-"`
 	PrivateKey    *ecdsa.PrivateKey `json:"PrivateKey,omitempty"`
-	Simulator     []uint16          `json:"simulator"`
 	ValidatorMode string            `json:"validatorMode,omitempty"`
 }
 

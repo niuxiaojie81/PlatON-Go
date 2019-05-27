@@ -455,9 +455,6 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 		return nil, errInvalidConfirmNumTooLow
 	}
 	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if cbft.simulator.SL3001() || cbft.simulator.SL3002() {
-		validator, err = cbft.getValidators().NodeIndexAddressForSimulator(cbft.config.NodeID)
-	}
 	if err != nil {
 		return nil, errInvalidatorCandidateAddress
 	}
@@ -468,31 +465,14 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 		ProposalIndex: uint32(validator.Index),
 		ProposalAddr:  validator.Address,
 	}
-	if cbft.simulator.SL3003() {
-		view.BaseBlockNum = ext.block.NumberU64() + 1
-		view.BaseBlockHash = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
-	}
 
 	var sign []byte
-	if cbft.simulator.SL3005() {
-		view.Timestamp = uint64(time.Now().UnixNano() + 1000000000) // add 1s
-		view.BaseBlockHash = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
-		sign, err = cbft.signMsg(view)
-	} else {
-		sign, err = cbft.signMsg(view)
-	}
+	sign, err = cbft.signMsg(view)
 	if err != nil {
 		return nil, err
 	}
 	view.Signature.SetBytes(sign)
 	view.BaseBlockPrepareVote = ext.Votes()
-	if cbft.simulator.SL3004() {
-		blockHash := ext.block.Hash()
-		errBlockSign, _ := cbft.signFn(blockHash[:])
-		errPrepareVote := ext.Votes()[0]
-		errPrepareVote.Signature.SetBytes(errBlockSign)
-		view.BaseBlockPrepareVote[0] = errPrepareVote
-	}
 	cbft.resetViewChange()
 	cbft.viewChange = view
 	cbft.master = true

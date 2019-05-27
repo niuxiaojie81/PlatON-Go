@@ -299,7 +299,6 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 		chainConfig.Cbft.MaxLatency = cbftConfig.MaxLatency
 		chainConfig.Cbft.LegalCoefficient = cbftConfig.LegalCoefficient
 		chainConfig.Cbft.Duration = cbftConfig.Duration
-		chainConfig.Cbft.Simulator = cbftConfig.Simulator
 		chainConfig.Cbft.BlockInterval = cbftConfig.BlockInterval
 		return cbft.New(chainConfig.Cbft, eventMux, ctx)
 	}

@@ -109,20 +109,6 @@ func (vs *Validators) NodeIndexAddress(id discover.NodeID) (*ValidateNode, error
 	return nil, errors.New("not found the node")
 }
 
-func (vs *Validators) NodeIndexAddressForSimulator(id discover.NodeID) (*ValidateNode, error) {
-	vs.mux.Lock()
-	defer vs.mux.Unlock()
-
-	node, ok := vs.Nodes[id]
-	if ok {
-		return node, nil
-	}
-	for _, v := range vs.Nodes {
-		return v, nil
-	}
-	return nil, nil
-}
-
 func (vs *Validators) NodeID(idx int) discover.NodeID {
 	vs.mux.Lock()
 	defer vs.mux.Unlock()

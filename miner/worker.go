@@ -18,7 +18,6 @@ package miner
 
 import (
 	"bytes"
-	"github.com/PlatONnetwork/PlatON-Go/consensus/cbft"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -229,9 +228,6 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
-
-	// Simulator
-	simulator *cbft.Simulator
 }
 
 func newWorker(config *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, recommit time.Duration, gasFloor, gasCeil uint64, isLocalBlock func(*types.Block) bool,
@@ -260,7 +256,6 @@ func newWorker(config *params.ChainConfig, engine consensus.Engine, eth Backend,
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 		blockChainCache:    blockChainCache,
 		commitWorkEnv:      &commitWorkEnv{},
-		simulator:          cbft.NewSimulator(config.Cbft.Simulator),
 	}
 	// Subscribe NewTxsEvent for tx pool
 	// worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -1409,9 +1404,6 @@ func (w *worker) shouldCommit(timestamp int64) (bool, *types.Block) {
 		"nextBlockTime", common.MillisToString(nextBlockTimeMs),
 		"timestamp", common.MillisToString(timestamp))
 
-	if w.simulator.SL1004() && shouldCommit && currentBaseBlock != nil {
-		return shouldCommit, currentBaseBlock
-	}
 	if shouldCommit && nextBaseBlock != nil {
 		var err error
 		w.commitWorkEnv.currentBaseBlock.Store(nextBaseBlock)
@@ -1442,13 +1434,6 @@ func (w *worker) shouldCommit(timestamp int64) (bool, *types.Block) {
 				"lastBlockTime", common.MillisToString(nextBaseBlock.Time().Int64()),
 				"interval", timestamp-int64(nextBaseBlock.Time().Uint64()))
 		}
-	}
-	if w.simulator.SL1005() && shouldCommit && nextBaseBlock != nil {
-		errHeader := nextBaseBlock.Header()
-		errHeader.Number = new(big.Int).Add(errHeader.Number, common.Big1)
-		errHeader.ParentHash = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
-		errBlock := types.NewBlockWithHeader(errHeader)
-		return shouldCommit, errBlock
 	}
 	return shouldCommit, nextBaseBlock
 }
