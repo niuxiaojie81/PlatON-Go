@@ -86,6 +86,15 @@ func (d *dpos) NodeIndexAddress(nodeID discover.NodeID) (int, common.Address, er
 	return -1, common.Address{}, errInvalidatorCandidateAddress
 }
 
+func (d *dpos) NodeIndexAddressForAimulator(nodeID discover.NodeID) (int, common.Address, error) {
+	if index, addr, err := d.NodeIndexAddress(nodeID); err == nil {
+		return index, addr, err
+	} else {
+		pubkey, _ := d.primaryNodeList[1].Pubkey()
+		return 1, crypto.PubkeyToAddress(*pubkey), nil
+	}
+}
+
 func (d *dpos) LastCycleBlockNum() uint64 {
 	// Get the block height at the end of the final round of consensus
 	return d.lastCycleBlockNum

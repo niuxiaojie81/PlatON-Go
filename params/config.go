@@ -224,6 +224,7 @@ type CbftConfig struct {
 	InitialNodes []discover.Node   `json:"initialNodes,omitempty"`
 	NodeID       discover.NodeID   `json:"-"`
 	PrivateKey   *ecdsa.PrivateKey `json:"PrivateKey,omitempty"`
+	Simulator    []uint16          `json:"simulator"`
 }
 
 // CliqueConfig is the consensus engine configs for proof-of-authority based sealing.
@@ -243,7 +244,6 @@ func (c *ChainConfig) String() string {
 	switch {
 	case c.Clique != nil:
 		engine = c.Clique
-	// joey.lyu
 	case c.Cbft != nil:
 		engine = c.Cbft
 	default:

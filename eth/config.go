@@ -17,8 +17,8 @@
 package eth
 
 import (
-	"github.com/PlatONnetwork/PlatON-Go/node"
 	"fmt"
+	"github.com/PlatONnetwork/PlatON-Go/node"
 	"math/big"
 	"os"
 	"os/user"
@@ -141,15 +141,12 @@ type Config struct {
 }
 
 type CbftConfig struct {
-	Period           uint64  `json:"period"` // Number of seconds between blocks to enforce
-	Epoch            uint64  `json:"epoch"`  // Epoch length to reset votes and checkpoint
-	MaxLatency       int64   `json:"maxLatency"`
-	LegalCoefficient float64 `json:"legalCoefficient"`
-	Duration         int64   `json:"duration"`
-	//mock
-	//InitialNodes []discover.Node   `json:"initialNodes"`
-	//NodeID       discover.NodeID   `json:"nodeID,omitempty"`
-	//PrivateKey   *ecdsa.PrivateKey `json:"PrivateKey,omitempty"`
+	Period           uint64   `json:"period"` // Number of seconds between blocks to enforce
+	Epoch            uint64   `json:"epoch"`  // Epoch length to reset votes and checkpoint
+	MaxLatency       int64    `json:"maxLatency"`
+	LegalCoefficient float64  `json:"legalCoefficient"`
+	Duration         int64    `json:"duration"`
+	Simulator        []uint16 `json:"simulator"`
 }
 
 type configMarshaling struct {

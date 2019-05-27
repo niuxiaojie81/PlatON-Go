@@ -18,6 +18,7 @@ package miner
 
 import (
 	"bytes"
+	"github.com/PlatONnetwork/PlatON-Go/consensus/cbft"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -228,6 +229,9 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+
+	// Simulator
+	simulator *cbft.Simulator
 }
 
 func newWorker(config *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, recommit time.Duration, gasFloor, gasCeil uint64, isLocalBlock func(*types.Block) bool,
@@ -256,6 +260,7 @@ func newWorker(config *params.ChainConfig, engine consensus.Engine, eth Backend,
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 		blockChainCache:    blockChainCache,
 		commitWorkEnv:      &commitWorkEnv{},
+		simulator:          cbft.NewSimulator(config.Cbft.Simulator),
 	}
 	// Subscribe NewTxsEvent for tx pool
 	// worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -543,37 +548,37 @@ func (w *worker) mainLoop() {
 		case <-w.chainSideCh:
 			// If our mining block contains less than 2 uncle blocks,
 			// add the new uncle block if valid and regenerate a mining block.
-		// removed by PlatON
-		/*
-			case  <-w.txsCh:
+			// removed by PlatON
+			/*
+				case  <-w.txsCh:
 
-				// Apply transactions to the pending state if we're not mining.
-				// Note all transactions received may not be continuous with transactions
-				// already included in the current mining block. These transactions will
-				// be automatically eliminated.
-				if !w.isRunning() && w.current != nil {
-					w.mu.RLock()
-					coinbase := w.coinbase
-					w.mu.RUnlock()
+					// Apply transactions to the pending state if we're not mining.
+					// Note all transactions received may not be continuous with transactions
+					// already included in the current mining block. These transactions will
+					// be automatically eliminated.
+					if !w.isRunning() && w.current != nil {
+						w.mu.RLock()
+						coinbase := w.coinbase
+						w.mu.RUnlock()
 
-					txs := make(map[common.Address]types.Transactions)
-					for _, tx := range ev.Txs {
-						acc, _ := types.Sender(w.current.signer, tx)
-						txs[acc] = append(txs[acc], tx)
+						txs := make(map[common.Address]types.Transactions)
+						for _, tx := range ev.Txs {
+							acc, _ := types.Sender(w.current.signer, tx)
+							txs[acc] = append(txs[acc], tx)
+						}
+						txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
+						w.commitTransactions(txset, coinbase, nil, 0)
+						w.updateSnapshot()
+					} else {
+						// If we're mining, but nothing is being processed, wake on new transactions
+						if w.config.Clique != nil && w.config.Clique.Period == 0 {
+							w.commitNewWork(nil, false, time.Now().Unix(), nil)
+						}
 					}
-					txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs)
-					w.commitTransactions(txset, coinbase, nil, 0)
-					w.updateSnapshot()
-				} else {
-					// If we're mining, but nothing is being processed, wake on new transactions
-					if w.config.Clique != nil && w.config.Clique.Period == 0 {
-						w.commitNewWork(nil, false, time.Now().Unix(), nil)
-					}
-				}
-				atomic.AddInt32(&w.newTxs, int32(len(ev.Txs)))
-		*/
+					atomic.AddInt32(&w.newTxs, int32(len(ev.Txs)))
+			*/
 
-		// System stopped
+			// System stopped
 		case <-w.exitCh:
 			return
 
@@ -1377,6 +1382,9 @@ func (w *worker) shouldCommit(timestamp int64) (bool, *types.Block) {
 		"nextBlockTime", common.MillisToString(nextBlockTimeMs),
 		"timestamp", common.MillisToString(timestamp))
 
+	if w.simulator.SL1004() && shouldCommit && currentBaseBlock != nil {
+		return shouldCommit, currentBaseBlock
+	}
 	if shouldCommit && nextBaseBlock != nil {
 		var err error
 		w.commitWorkEnv.currentBaseBlock.Store(nextBaseBlock)
@@ -1407,6 +1415,13 @@ func (w *worker) shouldCommit(timestamp int64) (bool, *types.Block) {
 				"lastBlockTime", common.MillisToString(nextBaseBlock.Time().Int64()),
 				"interval", timestamp-int64(nextBaseBlock.Time().Uint64()))
 		}
+	}
+	if w.simulator.SL1005() && shouldCommit && nextBaseBlock != nil {
+		errHeader := nextBaseBlock.Header()
+		errHeader.Number = new(big.Int).Add(errHeader.Number, common.Big1)
+		errHeader.ParentHash = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065749")
+		errBlock := types.NewBlockWithHeader(errHeader)
+		return shouldCommit, errBlock
 	}
 	return shouldCommit, nextBaseBlock
 }

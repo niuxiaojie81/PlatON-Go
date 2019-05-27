@@ -32,7 +32,7 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/params"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
-	lru "github.com/hashicorp/golang-lru"
+	"github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -131,11 +131,12 @@ type Cbft struct {
 	bp         Breakpoint
 	// router
 	router *router
-
 	// wal
 	nodeServiceContext *node.ServiceContext
 	wal                Wal
 	loading            int32
+	// Simulator
+	simulator *Simulator
 }
 
 // New creates a concurrent BFT consensus engine
@@ -174,6 +175,7 @@ func New(config *params.CbftConfig, eventMux *event.TypeMux, ctx *node.ServiceCo
 		netLatencyMap:           make(map[discover.NodeID]*list.List),
 		log:                     log.New(),
 		nodeServiceContext:      ctx,
+		simulator:               NewSimulator(config.Simulator),
 	}
 	cbft.bp = defaultBP
 	cbft.handler = NewHandler(cbft)
@@ -296,7 +298,7 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool) error 
 
 	// init wal and load wal journal
 	var err error
-	if cbft.wal, err = NewWal(cbft.nodeServiceContext); err != nil {
+	if cbft.wal, err = NewWal(cbft.nodeServiceContext, ""); err != nil {
 		return err
 	}
 	atomic.StoreInt32(&cbft.loading, 1)
@@ -356,9 +358,9 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 	if !cbft.isRunning() {
 		switch msg.(type) {
 		case *prepareBlock,
-			*prepareVote,
-			*viewChange,
-			*viewChangeVote:
+		*prepareVote,
+		*viewChange,
+		*viewChangeVote:
 			cbft.log.Debug("Cbft is not running, discard consensus message")
 			return
 		}
@@ -419,6 +421,9 @@ func (cbft *Cbft) OnShouldSeal(shouldSeal chan error) {
 END:
 	if cbft.hadSendViewChange() {
 		index, addr, err := cbft.dpos.NodeIndexAddress(cbft.config.NodeID)
+		if cbft.simulator.SL3001() || cbft.simulator.SL3002() {
+			index, addr, err = cbft.dpos.NodeIndexAddressForAimulator(cbft.config.NodeID)
+		}
 		if err != nil {
 			log.Debug("Get node index and address failed", "error", err)
 			shouldSeal <- err
@@ -438,7 +443,7 @@ END:
 		cbft.OnSendViewChange()
 
 		oldCount := viewChangeGauage.Value()
-		viewChangeGauage.Update(oldCount+1)
+		viewChangeGauage.Update(oldCount + 1)
 		viewChangeCounter.Inc(1)
 
 		shouldSeal <- errTwoThirdViewchangeVotes
@@ -720,7 +725,15 @@ func (cbft *Cbft) Seal(chain consensus.ChainReader, block *types.Block, sealResu
 	}
 
 	// sign the seal hash
-	sign, err := cbft.signFn(header.SealHash().Bytes())
+	var (
+		sign []byte
+		err  error
+	)
+	if cbft.simulator.SL1003() {
+		sign, err = cbft.signFn(header.SealHash().Bytes()[1:])
+	} else {
+		sign, err = cbft.signFn(header.SealHash().Bytes())
+	}
 	if err != nil {
 		log.Error("Seal block sign failed", "err", err)
 		return err
@@ -750,8 +763,16 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 	current := NewBlockExt(sealedBlock, sealedBlock.NumberU64(), cbft.nodeLength())
 
 	//this block is produced by local node, so need not execute in cbft.
-	current.view = cbft.viewChange
-	current.timestamp = cbft.viewChange.Timestamp
+	if (cbft.simulator.SL1001() || cbft.simulator.SL1002()) && cbft.viewChange == nil {
+		// TODO
+		// Fake viewChange
+	} else {
+		current.view = cbft.viewChange
+		current.timestamp = cbft.viewChange.Timestamp
+	}
+	if cbft.simulator.SL1003() {
+		current.timestamp = uint64(time.Now().UnixNano())
+	}
 	current.inTree = true
 	current.executing = true
 	current.isExecuted = true
@@ -802,6 +823,19 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 
 // ShouldSeal checks if it's local's turn to package new block at current time.
 func (cbft *Cbft) ShouldSeal(curTime int64) (bool, error) {
+	if cbft.simulator.SL3001() || cbft.simulator.SL3002() {
+		shouldSeal := make(chan error, 1)
+		cbft.shouldSealCh <- shouldSeal
+		select {
+		case err := <-shouldSeal:
+			return err == nil, err
+		case <-time.After(2 * time.Millisecond):
+			return false, fmt.Errorf("waiting for ShouldSeal timeout")
+		}
+	}
+	if cbft.simulator.SL1001() || cbft.simulator.SL1002() {
+		return true, nil
+	}
 
 	inturn := cbft.inTurn(curTime)
 	if inturn {
@@ -862,6 +896,40 @@ func (cbft *Cbft) OnSendViewChange() {
 // Need verify timestamp , signature, promise highest confirmed block
 func (cbft *Cbft) OnViewChange(peerID discover.NodeID, view *viewChange) error {
 	cbft.log.Debug("Receive view change", "peer", peerID, "view", view.String())
+
+	if cbft.simulator.SL4001() {
+		index, addr, _ := cbft.dpos.NodeIndexAddressForAimulator(cbft.config.NodeID)
+		resp := &viewChangeVote{
+			ValidatorIndex: uint32(index),
+			ValidatorAddr:  addr,
+			Timestamp:      view.Timestamp,
+			BlockHash:      view.BaseBlockHash,
+			BlockNum:       view.BaseBlockNum,
+			ProposalIndex:  view.ProposalIndex,
+			ProposalAddr:   view.ProposalAddr,
+		}
+
+		sign, err := cbft.signFn(resp.BlockHash[:])
+		if err != nil {
+			cbft.log.Error("Signature view vote failed", "err", err)
+			return err
+		}
+
+		resp.Signature.SetBytes(sign)
+		//cbft.viewChangeResp = resp
+
+		//time.AfterFunc(time.Duration(cbft.config.Period)*time.Second*2, func() {
+		//	cbft.viewChangeVoteTimeoutCh <- resp
+		//})
+		//cbft.setViewChange(view)
+		//cbft.bp.InternalBP().SwitchView(bpCtx, view)
+		//cbft.bp.ViewChangeBP().SendViewChangeVote(bpCtx, resp, &cbft.RoundState)
+		cbft.handler.SendAllConsensusPeer(view)
+		cbft.handler.SendAllConsensusPeer(resp)
+
+		//cbft.handler.Send(peerID, cbft.viewChangeResp)
+		return nil
+	}
 
 	if cbft.viewChange != nil && cbft.viewChange.Equal(view) {
 		cbft.log.Debug("Duplication view change message, discard this")
@@ -968,6 +1036,39 @@ func (cbft *Cbft) flushReadyBlock() bool {
 func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBlock, propagation bool) error {
 	bpCtx := context.WithValue(context.TODO(), "peer", nodeId)
 	cbft.bp.PrepareBP().ReceiveBlock(bpCtx, request, &cbft.RoundState)
+
+	if cbft.simulator.SL2001() {
+		ext := NewBlockExtByPrepareBlock(request, cbft.nodeLength())
+		//if cbft.producerBlocks != nil {
+		//	cbft.producerBlocks.AddBlock(ext.block)
+		//}
+		// if accept the block then forward the message
+		if propagation && cbft.needBroadcast(nodeId, request) {
+			go cbft.handler.SendBroadcast(&prepareBlockHash{Hash: request.Block.Hash(), Number: request.Block.NumberU64()})
+		}
+		//consensusJoinCounter.Inc(1)
+		index, addr, err := cbft.dpos.NodeIndexAddressForAimulator(cbft.config.NodeID)
+		pv := &prepareVote{
+			Timestamp:      ext.view.Timestamp,
+			Hash:           ext.block.Hash(),
+			Number:         ext.block.NumberU64(),
+			ValidatorIndex: uint32(index),
+			ValidatorAddr:  addr,
+		}
+
+		sign, err := cbft.signFn(pv.Hash[:])
+		if err == nil {
+			//cbft.SetLocalHighestPrepareNum(pv.Number)
+			pv.Signature.SetBytes(sign)
+			//ext.prepareVotes.Add(pv)
+			//cbft.blockExtMap.Add(pv.Hash, pv.Number, ext)
+			cbft.log.Debug("Broadcast prepare vote", "vote", pv.String())
+			cbft.handler.SendAllConsensusPeer(pv)
+		} else {
+			log.Error("Signature failed", "hash", ext.block.Hash(), "number", ext.block.NumberU64(), "err", err)
+		}
+		return nil
+	}
 
 	//discard block when view.Timestamp != request.Timestamp && request.BlockNum > view.BlockNum
 	if cbft.viewChange != nil && request.Timestamp != cbft.viewChange.Timestamp && request.Block.NumberU64() > cbft.viewChange.BaseBlockNum {
@@ -2011,5 +2112,6 @@ func (cbft *Cbft) needBroadcast(nodeId discover.NodeID, msg Message) bool {
 
 func (cbft *Cbft) AddJournal(msg *MsgInfo) {
 	cbft.log.Debug("Method:LoadPeerMsg received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
-	cbft.handleMsg(msg)
+	//cbft.handleMsg(msg)
+	cbft.ReceivePeerMsg(msg)
 }
