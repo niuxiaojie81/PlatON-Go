@@ -366,11 +366,6 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 		}
 	}
 
-	// write journal msg if cbft is not loading
-	if !cbft.isLoading() {
-		cbft.wal.Write(info)
-	}
-
 	switch msg := msg.(type) {
 	case *prepareBlock:
 		err = cbft.OnNewPrepareBlock(peerID, msg, true)
@@ -397,6 +392,9 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 	}
 	if err != nil {
 		cbft.log.Error("Handle msg Failed", "error", err, "type", reflect.TypeOf(msg), "peer", peerID)
+	} else if !cbft.isLoading() {
+		// write journal msg if cbft is not loading
+		cbft.wal.Write(info)
 	}
 }
 func (cbft *Cbft) isRunning() bool {
