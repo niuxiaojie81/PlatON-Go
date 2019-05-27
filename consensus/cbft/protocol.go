@@ -2,11 +2,14 @@ package cbft
 
 import (
 	"fmt"
+	"github.com/PlatONnetwork/PlatON-Go/crypto"
+	"github.com/PlatONnetwork/PlatON-Go/rlp"
+	"math/big"
+	"reflect"
+
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
-	"math/big"
-	"reflect"
 )
 
 const CbftProtocolMaxMsgSize = 10 * 1024 * 1024
@@ -58,6 +61,11 @@ var errorToString = map[int]string{
 	ErrSuspendedPeer:           "Suspended peer",
 }
 
+type ConsensusMsg interface {
+	CannibalizeBytes() ([]byte, error)
+	Sign() []byte
+}
+
 type Message interface {
 	String() string
 	MsgHash() common.Hash
@@ -71,12 +79,21 @@ type MsgInfo struct {
 
 // CBFT consensus message
 type prepareBlock struct {
-	Timestamp       uint64
+	Timestamp       uint64 `json:"timestamp"`
 	Block           *types.Block
 	ProposalIndex   uint32            `json:"proposal_index"`
 	ProposalAddr    common.Address    `json:"proposal_address"`
 	View            *viewChange       `json:"view"`
 	ViewChangeVotes []*viewChangeVote `json:"viewchange_votes"`
+	Extra           []byte
+}
+
+func (pb *prepareBlock) CannibalizeBytes() ([]byte, error) {
+	return pb.Block.Header().SealHash().Bytes(), nil
+}
+
+func (pb *prepareBlock) Sign() []byte {
+	return pb.Block.Extra()[len(pb.Block.Extra())-extraSeal:]
 }
 
 func (pb *prepareBlock) String() string {
@@ -90,7 +107,11 @@ func (pb *prepareBlock) MsgHash() common.Hash {
 	if pb == nil {
 		return common.Hash{}
 	}
-	return produceHash(PrepareBlockMsg, pb.Block.Hash())
+	bytes := make([]byte, 0)
+	bytes = append(bytes, pb.Block.Hash().Bytes()...)
+	bytes = append(bytes, pb.ProposalAddr.Bytes()...)
+	bytes = append(bytes, uint64ToBytes(pb.Timestamp)...)
+	return produceHash(PrepareBlockMsg, bytes)
 }
 
 func (pb *prepareBlock) BHash() common.Hash {
@@ -116,7 +137,7 @@ func (pbh *prepareBlockHash) MsgHash() common.Hash {
 	if pbh == nil {
 		return common.Hash{}
 	}
-	return produceHash(PrepareBlockHashMsg, pbh.Hash)
+	return produceHash(PrepareBlockHashMsg, pbh.Hash.Bytes())
 }
 
 func (pbh *prepareBlockHash) BHash() common.Hash {
@@ -127,12 +148,33 @@ func (pbh *prepareBlockHash) BHash() common.Hash {
 }
 
 type prepareVote struct {
-	Timestamp      uint64
-	Hash           common.Hash
-	Number         uint64
-	ValidatorIndex uint32
-	ValidatorAddr  common.Address
-	Signature      common.BlockConfirmSign
+	Timestamp      uint64                  `json:"timestamp"`
+	Hash           common.Hash             `json:"hash"`
+	Number         uint64                  `json:"number"`
+	ValidatorIndex uint32                  `json:"validator_index"`
+	ValidatorAddr  common.Address          `json:"validator_address"`
+	Signature      common.BlockConfirmSign `json:"signature"`
+	Extra          []byte                  `json:"-"`
+}
+
+func (pv *prepareVote) CannibalizeBytes() ([]byte, error) {
+	buf, err := rlp.EncodeToBytes([]interface{}{
+		pv.Timestamp,
+		pv.Hash,
+		pv.Number,
+		pv.ValidatorIndex,
+		pv.ValidatorAddr,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return crypto.Keccak256(buf), nil
+}
+
+func (pv *prepareVote) Sign() []byte {
+	return pv.Signature.Bytes()
 }
 
 func (pv *prepareVote) String() string {
@@ -146,7 +188,11 @@ func (pv *prepareVote) MsgHash() common.Hash {
 	if pv == nil {
 		return common.Hash{}
 	}
-	return produceHash(PrepareVoteMsg, pv.Hash)
+	bytes := make([]byte, 0)
+	bytes = append(bytes, pv.Hash.Bytes()...)
+	bytes = append(bytes, pv.ValidatorAddr.Bytes()...)
+	bytes = append(bytes, uint64ToBytes(pv.Timestamp)...)
+	return produceHash(PrepareVoteMsg, bytes)
 }
 
 func (pv *prepareVote) BHash() common.Hash {
@@ -163,7 +209,28 @@ type viewChange struct {
 	BaseBlockNum         uint64                  `json:"base_block_number"`
 	BaseBlockHash        common.Hash             `json:"base_block_hash"`
 	BaseBlockPrepareVote []*prepareVote          `json:"base_block_prepare_votes"`
-	Signature            common.BlockConfirmSign `json:"-"`
+	Signature            common.BlockConfirmSign `json:"signature"`
+	Extra                []byte                  `json:"-"`
+}
+
+func (v *viewChange) CannibalizeBytes() ([]byte, error) {
+	buf, err := rlp.EncodeToBytes([]interface{}{
+		v.Timestamp,
+		v.ProposalIndex,
+		v.ProposalAddr,
+		v.BaseBlockNum,
+		v.BaseBlockHash,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return crypto.Keccak256(buf), nil
+}
+
+func (v *viewChange) Sign() []byte {
+	return v.Signature.Bytes()
 }
 
 func (v *viewChange) String() string {
@@ -178,7 +245,11 @@ func (v *viewChange) MsgHash() common.Hash {
 	if v == nil {
 		return common.Hash{}
 	}
-	return produceHash(ViewChangeMsg, common.BytesToHash(v.Signature.Bytes()))
+	bytes := make([]byte, 0)
+	bytes = append(bytes, v.Signature.Bytes()...)
+	bytes = append(bytes, v.ProposalAddr.Bytes()...)
+	bytes = append(bytes, uint64ToBytes(v.Timestamp)...)
+	return produceHash(ViewChangeMsg, bytes)
 }
 
 func (v *viewChange) BHash() common.Hash {
@@ -227,8 +298,31 @@ type viewChangeVote struct {
 	ProposalIndex  uint32                  `json:"proposal_index"`
 	ProposalAddr   common.Address          `json:"proposal_address"`
 	ValidatorIndex uint32                  `json:"validator_index"`
-	ValidatorAddr  common.Address          `json:"-"`
-	Signature      common.BlockConfirmSign `json:"-"`
+	ValidatorAddr  common.Address          `json:"validator_address"`
+	Signature      common.BlockConfirmSign `json:"signature"`
+	Extra          []byte                  `json:"-"`
+}
+
+func (v *viewChangeVote) CannibalizeBytes() ([]byte, error) {
+	buf, err := rlp.EncodeToBytes([]interface{}{
+		v.Timestamp,
+		v.BlockNum,
+		v.BlockHash,
+		v.ProposalIndex,
+		v.ProposalAddr,
+		v.ValidatorIndex,
+		v.ValidatorAddr,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return crypto.Keccak256(buf), nil
+}
+
+func (v *viewChangeVote) Sign() []byte {
+	return v.Signature.Bytes()
 }
 
 func (v *viewChangeVote) String() string {
@@ -243,7 +337,12 @@ func (v *viewChangeVote) MsgHash() common.Hash {
 	if v == nil {
 		return common.Hash{}
 	}
-	return produceHash(ViewChangeVoteMsg, common.BytesToHash(v.Signature.Bytes()))
+	bytes := make([]byte, 0)
+	bytes = append(bytes, v.Signature.Bytes()...)
+	bytes = append(bytes, v.ValidatorAddr.Bytes()[:5]...)
+	bytes = append(bytes, uint64ToBytes(v.Timestamp)...)
+
+	return produceHash(ViewChangeVoteMsg, bytes)
 }
 
 func (v *viewChangeVote) BHash() common.Hash {
@@ -288,7 +387,7 @@ func (cpb *confirmedPrepareBlock) MsgHash() common.Hash {
 	if cpb == nil {
 		return common.Hash{}
 	}
-	return produceHash(ConfirmedPrepareBlockMsg, cpb.Hash)
+	return produceHash(ConfirmedPrepareBlockMsg, cpb.Hash.Bytes())
 }
 
 func (cpb *confirmedPrepareBlock) BHash() common.Hash {
@@ -313,7 +412,7 @@ func (gpb *getHighestPrepareBlock) MsgHash() common.Hash {
 	if gpb == nil {
 		return common.Hash{}
 	}
-	return produceHash(GetHighestPrepareBlockMsg, common.BigToHash(new(big.Int).SetUint64(gpb.Lowest)))
+	return produceHash(GetHighestPrepareBlockMsg, common.BigToHash(new(big.Int).SetUint64(gpb.Lowest)).Bytes())
 }
 
 func (gpb *getHighestPrepareBlock) BHash() common.Hash {
@@ -340,7 +439,7 @@ func (pb *highestPrepareBlock) MsgHash() common.Hash {
 	if pb == nil {
 		return common.Hash{}
 	}
-	return produceHash(HighestPrepareBlockMsg, common.Hash{})
+	return produceHash(HighestPrepareBlockMsg, common.Hash{}.Bytes())
 }
 
 func (pb *highestPrepareBlock) BHash() common.Hash {
@@ -366,7 +465,7 @@ func (gpb *getPrepareBlock) MsgHash() common.Hash {
 	if gpb == nil {
 		return common.Hash{}
 	}
-	return produceHash(GetPrepareBlockMsg, gpb.Hash)
+	return produceHash(GetPrepareBlockMsg, gpb.Hash.Bytes())
 }
 
 func (gpb *getPrepareBlock) BHash() common.Hash {
@@ -393,7 +492,7 @@ func (pv *getPrepareVote) MsgHash() common.Hash {
 	if pv == nil {
 		return common.Hash{}
 	}
-	return produceHash(GetPrepareVoteMsg, pv.Hash)
+	return produceHash(GetPrepareVoteMsg, pv.Hash.Bytes())
 }
 
 func (pv *getPrepareVote) BHash() common.Hash {
@@ -420,7 +519,7 @@ func (pv *prepareVotes) MsgHash() common.Hash {
 	if pv == nil {
 		return common.Hash{}
 	}
-	return produceHash(PrepareVotesMsg, pv.Hash)
+	return produceHash(PrepareVotesMsg, pv.Hash.Bytes())
 }
 
 func (pv *prepareVotes) BHash() common.Hash {
@@ -482,7 +581,7 @@ func (s *cbftStatusData) MsgHash() common.Hash {
 	if s == nil {
 		return common.Hash{}
 	}
-	return produceHash(CBFTStatusMsg, s.CurrentBlock)
+	return produceHash(CBFTStatusMsg, s.CurrentBlock.Bytes())
 }
 
 func (s *cbftStatusData) BHash() common.Hash {
