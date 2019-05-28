@@ -20,14 +20,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/PlatONnetwork/PlatON-Go/common"
+	"github.com/PlatONnetwork/PlatON-Go/core"
+	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
+	"github.com/PlatONnetwork/PlatON-Go/params"
 	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/PlatONnetwork/PlatON-Go/common"
-	"github.com/PlatONnetwork/PlatON-Go/core"
 	"github.com/PlatONnetwork/PlatON-Go/eth"
 	"github.com/PlatONnetwork/PlatON-Go/internal/jsre"
 	"github.com/PlatONnetwork/PlatON-Go/node"
@@ -94,14 +96,27 @@ func newTester(t *testing.T, confOverride func(*eth.Config)) *tester {
 	if err != nil {
 		t.Fatalf("failed to create node: %v", err)
 	}
-	ethConf := &eth.Config{
-		Genesis:   core.DeveloperGenesisBlock(15, common.Address{}),
-		Etherbase: common.HexToAddress(testAddress),
+	//ethConf := &eth.Config{
+	//	Genesis:   core.DeveloperGenesisBlock(15, common.Address{}),
+	//	Etherbase: common.HexToAddress(testAddress),
+	//}
+	ethConf := &eth.DefaultConfig
+	ethConf.Genesis = core.DeveloperGenesisBlock(15, common.Address{})
+	n, _ := discover.ParseNode("enode://73f48a69ae73b85c0a578258954936300b305cb063cbd658d680826ebc0d47cedb890f01f15df2f2e510342d16e7bf5aaf3d7be4ba05a3490de0e9663663addc@127.0.0.1:16789")
+
+	ethConf.Genesis.Config.Cbft = &params.CbftConfig{
+		InitialNodes: []discover.Node{
+			*n,
+		},
 	}
+	ethConf.Etherbase = common.HexToAddress(testAddress)
 	if confOverride != nil {
 		confOverride(ethConf)
 	}
-	if err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) { return eth.New(ctx, ethConf) }); err != nil {
+	if err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
+
+		return eth.New(ctx, ethConf)
+	}); err != nil {
 		t.Fatalf("failed to register Ethereum protocol: %v", err)
 	}
 	// Start the node and assemble the JavaScript console around it
@@ -176,6 +191,55 @@ func TestWelcome(t *testing.T) {
 	if want := fmt.Sprintf("datadir: %s", tester.workspace); !strings.Contains(output, want) {
 		t.Fatalf("console output missing coinbase: have\n%s\nwant also %s", output, want)
 	}
+}
+
+func TestApi(t *testing.T) {
+	tester := newTester(t, nil)
+	defer tester.Close(t)
+	fmt.Fprintf(tester.console.printer, "Welcome to the PlatON JavaScript console!\n\n")
+	_, err := tester.console.jsre.Run(`
+		console.log("instance: " + web3.version.node);
+		console.log("coinbase: " + platon.coinbase);
+		console.log("at block: " + platon.blockNumber + " (" + new Date(1000 * platon.getBlock(platon.blockNumber).timestamp) + ")");
+		console.log(" datadir: " + admin.datadir);
+		console.log(" protocolVersion: " + platon.protocolVersion);
+		console.log(" sync: " + platon.syncing);
+		console.log(platon.protocolVersion)
+		console.log(platon.syncing)
+		console.log(platon.gasPrice)
+		console.log(platon.accounts)
+		console.log(platon.blockNumber)
+		console.log(platon.getBalance)
+		console.log(platon.getStorageAt)
+		console.log(platon.getTransactionCount)
+		console.log(platon.getBlockTransactionCountByHash)
+		console.log(platon.getBlockTransactionCountByNumber)
+		console.log(platon.getCode)
+		console.log(platon.sign)
+		console.log(platon.sendTransaction)
+		console.log(platon.sendRawTransaction)
+		console.log(platon.call)
+		console.log(platon.estimateGas)
+		console.log(platon.getBlockByHash)
+		console.log(platon.getBlockByNumber)
+		console.log(platon.getTransactionByHash)
+		console.log(platon.getTransactionByBlockHashAndIndex)
+		console.log(platon.getTransactionByBlockNumberAndIndex)
+		console.log(platon.getTransactionReceipt)
+		console.log(platon.newFilter)
+		console.log(platon.newBlockFilter)
+		console.log(platon.newPendingTransactionFilter)
+		console.log(platon.uninstallFilter)
+		console.log(platon.getFilterChanges)
+		console.log(platon.getFilterLogs)
+		console.log(platon.getLogs)
+		console.log(platon.signTransaction)
+		console.log(platon.evidences)
+	`)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Log(tester.output.String())
 }
 
 // Tests that JavaScript statement evaluation works as intended.
