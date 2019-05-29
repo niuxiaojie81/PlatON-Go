@@ -1,8 +1,11 @@
 package cbft
 
 import (
+	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
+	"github.com/PlatONnetwork/PlatON-Go/crypto"
 	"github.com/stretchr/testify/assert"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -38,3 +41,68 @@ func TestNewViewChange(t *testing.T) {
 //
 //err := engine.OnViewChangeVote(priA.nodeID, voteA)
 //t.Log(err)
+
+func TestNewPrepareBlock(t *testing.T) {
+	path := path()
+	defer os.RemoveAll(path)
+
+	engine, backend, validators := randomCBFT(path, 4)
+	owner := validators.owner
+
+	gen := backend.chain.Genesis()
+	block := createBlock(owner.privateKey, gen.Hash(), gen.NumberU64()+1)
+
+	// test Cache
+	p := buildPrepareBlock(block, owner, nil, nil)
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != nil {
+		t.Fatalf("test Cache error: %v", err)
+	}
+
+	view, err := engine.newViewChange()
+	viewChangeVotes := buildViewChangeVote(view, validators)
+
+	// test errFutileBlock
+	if err != nil {
+		t.Fatalf("newViewChange error: %v", err)
+	}
+	t.Log(view.BaseBlockNum, view.BaseBlockHash.Hex(), view.ProposalIndex, view.ProposalAddr, view.Timestamp)
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != errFutileBlock {
+		t.Fatalf("test errFutileBlock error: %v", err)
+	}
+
+	// test VerifyHeader
+	header := &types.Header{Number: big.NewInt(int64(gen.NumberU64() + 1)), ParentHash: gen.Hash()}
+	sign, _ := crypto.Sign(header.SealHash().Bytes(), owner.privateKey)
+	header.Extra = make([]byte, 32)
+	copy(header.Extra, sign[0:32])
+	block = types.NewBlockWithHeader(header)
+	p = buildPrepareBlock(block, owner, view, viewChangeVotes)
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != errMissingSignature {
+		t.Fatalf("test VerifyHeader signature error: %v", err)
+	}
+
+	// test errInvalidatorCandidateAddress
+	header = &types.Header{Number: big.NewInt(int64(gen.NumberU64() + 1)), ParentHash: gen.Hash()}
+	sign, _ = crypto.Sign(header.SealHash().Bytes(), owner.privateKey)
+	header.Extra = make([]byte, 32+65)
+	copy(header.Extra, sign)
+	block = types.NewBlockWithHeader(header)
+	p = buildPrepareBlock(block, owner, view, viewChangeVotes)
+	p.ProposalAddr = common.HexToAddress("0x27f7e1d4b9caab9d5b13803cff6da714c51de34e")
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != errInvalidatorCandidateAddress {
+		t.Fatalf("test errInvalidatorCandidateAddress error: %v", err)
+	}
+
+	// test errTwoThirdViewchangeVotes
+	p.ProposalAddr = owner.address
+	p.ViewChangeVotes = p.ViewChangeVotes[0:1]
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != errTwoThirdViewchangeVotes {
+		t.Fatalf("test errTwoThirdViewchangeVotes error: %v", err)
+	}
+
+	// test errInvalidViewChangeVote
+	p.ViewChangeVotes = viewChangeVotes
+	if err := engine.OnNewPrepareBlock(owner.nodeID, p, true); err != errTwoThirdViewchangeVotes {
+		t.Fatalf("test errTwoThirdViewchangeVotes error: %v", err)
+	}
+}

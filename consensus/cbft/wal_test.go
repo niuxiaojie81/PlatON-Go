@@ -94,13 +94,6 @@ func TestWalWrite(t *testing.T) {
 				PeerID: peerId,
 			})
 		} else if i%3 == 0 {
-			//getWal().Write(&MsgInfo{
-			//	Msg: &prepareBlockHash{
-			//		Hash:   common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065747"),
-			//		Number: 13333,
-			//	},
-			//	PeerID: peerId,
-			//})
 			pvs := make([]*prepareVote, 0)
 			pvs = append(pvs, &prepareVote{
 				Timestamp: uint64(time.Now().UnixNano()),
