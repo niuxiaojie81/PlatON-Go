@@ -164,19 +164,19 @@ func TestWalWrite(t *testing.T) {
 			})
 		}
 		if err != nil {
-			fmt.Println("write error", err)
+			t.Log("write error", err)
 			t.Errorf("%s", "write error")
 		}
 		count ++
 	}
 	getWal().Close() // force flush
 	wal = nil
-	fmt.Println("write total msg info", count)
+	t.Log("write total msg info", count)
 	if count != times {
 		t.Errorf("%s", "write error")
 	}
 	endTime := uint64(time.Now().UnixNano())
-	fmt.Println("write elapsed time", endTime-beginTime)
+	t.Log("write elapsed time", endTime-beginTime)
 }
 
 func TestWalLoad(t *testing.T) {
@@ -188,17 +188,17 @@ func TestWalLoad(t *testing.T) {
 		count ++
 	})
 	if err != nil {
-		fmt.Println("load error", err)
+		t.Log("load error", err)
 		t.Errorf("%s", "load error")
 	}
 	getWal().Close() // force flush
 	wal = nil
-	fmt.Println("total msg info", count)
+	t.Log("total msg info", count)
 	if count != times {
 		t.Errorf("%s", "load error")
 	}
 	endTime := uint64(time.Now().UnixNano())
-	fmt.Println("load elapsed time", endTime-beginTime)
+	t.Log("load elapsed time", endTime-beginTime)
 
 }
 
@@ -211,10 +211,10 @@ func TestLevelDB(t *testing.T) {
 		if err == nil {
 			var v ViewChangeMeta
 			if err := rlp.DecodeBytes(data, &v); err == nil {
-				fmt.Println(v.Number)
-				fmt.Println(v.Hash.Hex())
-				fmt.Println(v.FileID)
-				fmt.Println(v.Seq)
+				t.Log(v.Number)
+				t.Log(v.Hash.Hex())
+				t.Log(v.FileID)
+				t.Log(v.Seq)
 				db.Close()
 				if v.Number != 100 || v.Hash.Hex() != viewChangeHash.Hex() {
 					t.Errorf("%s", "TestLevelDB error")
