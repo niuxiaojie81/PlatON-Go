@@ -2,6 +2,7 @@ package cbft
 
 import (
 	"crypto/ecdsa"
+	"fmt"
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core"
 	"github.com/PlatONnetwork/PlatON-Go/core/cbfttypes"
@@ -11,8 +12,11 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/ethdb"
 	"github.com/PlatONnetwork/PlatON-Go/event"
 	"github.com/PlatONnetwork/PlatON-Go/node"
+	"github.com/PlatONnetwork/PlatON-Go/p2p"
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/params"
+	"github.com/PlatONnetwork/PlatON-Go/rlp"
+	"github.com/deckarep/golang-set"
 	"math/big"
 	"time"
 )
@@ -40,12 +44,54 @@ type NodeData struct {
 }
 
 type testValidator struct {
-	owner  *NodeData
-	neibor []*NodeData
+	owner     *NodeData
+	neighbors []*NodeData
 }
 
 type mockWorker struct {
 	mux *event.TypeMux
+}
+
+type mockHandler struct {
+	sendQueue map[discover.NodeID]*MsgPackage
+	peerSet   *peerSet
+}
+
+func (m *mockHandler) clear() {
+	m.sendQueue = make(map[discover.NodeID]*MsgPackage)
+}
+
+func NewMockHandler() *mockHandler {
+	return &mockHandler{
+		sendQueue: make(map[discover.NodeID]*MsgPackage),
+		peerSet:   newPeerSet(),
+	}
+}
+func (mockHandler) Start() {
+}
+
+func (m *mockHandler) SendAllConsensusPeer(msg Message) {
+}
+
+func (m *mockHandler) Send(peerID discover.NodeID, msg Message) {
+	m.sendQueue[peerID] = &MsgPackage{
+		peerID: peerID.String(),
+		msg:    msg,
+	}
+}
+
+func (m *mockHandler) SendBroadcast(msg Message) {
+}
+
+func (m *mockHandler) SendPartBroadcast(msg Message) {
+}
+
+func (mockHandler) Protocols() []p2p.Protocol {
+	return []p2p.Protocol{}
+}
+
+func (m mockHandler) PeerSet() *peerSet {
+	return m.peerSet
 }
 
 func init() {
@@ -111,11 +157,68 @@ func makeViewChange(pri *ecdsa.PrivateKey, timestamp, baseBlockNum uint64, baseB
 	return p
 }
 
+func makeConfirmedBlock(v *testValidator, root common.Hash, view *viewChange, num int) []*BlockExt {
+	blocks := make([]*BlockExt, 0)
+	parentHash := view.BaseBlockHash
+	for i := uint64(1); i <= uint64(num); i++ {
+		block := createBlockWithRootHash(v.validator(view.ProposalIndex).privateKey, parentHash, root, view.BaseBlockNum+i)
+		ext := NewBlockExt(block, block.NumberU64(), v.len())
+		ext.view = view
+		for j := uint32(0); j < uint32(v.len()); j++ {
+			if j != view.ProposalIndex {
+				ext.prepareVotes.Add(makePrepareVote(v.validator(j).privateKey, view.Timestamp, block.NumberU64(), block.Hash(), j, v.validator(j).address))
+				ext.viewChangeVotes = append(ext.viewChangeVotes, makeViewChangeVote(v.validator(j).privateKey, view.Timestamp, view.BaseBlockNum, view.BaseBlockHash, view.ProposalIndex, view.ProposalAddr, j, v.validator(j).address))
+			}
+		}
+		extra := []byte{cbftVersion}
+		bxBytes, _ := rlp.EncodeToBytes(ext.BlockExtra())
+		extra = append(extra, bxBytes...)
+		block.SetExtraData(extra)
+		parentHash = block.Hash()
+		blocks = append(blocks, ext)
+	}
+	return blocks
+}
+
 func createBlock(pri *ecdsa.PrivateKey, parent common.Hash, number uint64) *types.Block {
 
 	header := &types.Header{
-		Number:     big.NewInt(int64(number)),
-		ParentHash: parent,
+		Number:      big.NewInt(int64(number)),
+		ParentHash:  parent,
+		ReceiptHash: types.EmptyRootHash,
+		TxHash:      types.EmptyRootHash,
+	}
+
+	sign, _ := crypto.Sign(header.SealHash().Bytes(), pri)
+	header.Extra = make([]byte, 32+65)
+	copy(header.Extra, sign)
+
+	block := types.NewBlockWithHeader(header)
+	return block
+}
+
+func createEmptyBlocks(pri *ecdsa.PrivateKey, parentHash common.Hash, parentNumber uint64, number int) []*types.Block {
+	var blocks []*types.Block
+	blockHash := parentHash
+	blockNum := parentNumber
+
+	for i := 0; i < number; i++ {
+		block := createBlock(pri, blockHash, blockNum+1)
+		blockHash = block.Hash()
+		blockNum = block.NumberU64()
+		blocks = append(blocks, block)
+	}
+	return blocks
+}
+
+func createBlockWithRootHash(pri *ecdsa.PrivateKey, parent common.Hash, root common.Hash, number uint64) *types.Block {
+
+	header := &types.Header{
+		Number:      big.NewInt(int64(number)),
+		ParentHash:  parent,
+		ReceiptHash: types.EmptyRootHash,
+		TxHash:      types.EmptyRootHash,
+		Root:        root,
 	}
 
 	sign, _ := crypto.Sign(header.SealHash().Bytes(), pri)
@@ -131,18 +234,20 @@ func nodeIndexNow(validators *testValidator, startTimestamp int64) *NodeData {
 
 	distance := now - startTimestamp
 	duration := chainConfig.Cbft.Duration * 1000
-	total := int64(len(validators.neibor) + 1)
+	total := int64(len(validators.neighbors) + 1)
 
 	index := distance % (duration * total) / duration
 	//
 	//if distance%(duration*total)%duration != 0 {
 	//	index += 1
 	//}
-
+	if index > int64(len(validators.neighbors)) {
+		panic(fmt.Sprintf("now:%d, distance:%d, duration:%d, total:%d, index:%d", now, distance, duration, total, index))
+	}
 	if index == 0 {
 		return validators.owner
 	}
-	return validators.neibor[index]
+	return validators.neighbors[index-1]
 }
 
 func CreateCBFT(path string, pri *ecdsa.PrivateKey) *Cbft {
@@ -210,7 +315,7 @@ func createTestValidator(accounts []*ecdsa.PrivateKey) *testValidator {
 			}
 			continue
 		}
-		validators.neibor = append(validators.neibor, &NodeData{
+		validators.neighbors = append(validators.neighbors, &NodeData{
 			privateKey: pri,
 			publicKey:  &pri.PublicKey,
 			address:    crypto.PubkeyToAddress(pri.PublicKey),
@@ -224,10 +329,20 @@ func createTestValidator(accounts []*ecdsa.PrivateKey) *testValidator {
 func (v *testValidator) Nodes() []discover.Node {
 	var nodes []discover.Node
 	nodes = append(nodes, discover.Node{ID: v.owner.nodeID})
-	for _, n := range v.neibor {
+	for _, n := range v.neighbors {
 		nodes = append(nodes, discover.Node{ID: n.nodeID})
 	}
 	return nodes
+}
+
+func (v *testValidator) validator(index uint32) *NodeData {
+	if index == 0 {
+		return v.owner
+	}
+	return v.neighbors[index-1]
+}
+func (v *testValidator) len() int {
+	return len(v.neighbors) + 1
 }
 
 func randomCBFT(path string, i int) (*Cbft, *testBackend, *testValidator) {
@@ -237,9 +352,58 @@ func randomCBFT(path string, i int) (*Cbft, *testBackend, *testValidator) {
 	return engine, backend, validators
 }
 
+func makeHandler(cbft *Cbft, pid string, msgHash common.Hash) (*baseHandler) {
+	handler := NewHandler(cbft)
+	peerSets := newPeerSet()
+	peer := &peer{
+		id: pid,
+		knownMessageHash: mapset.NewSet(),
+		rw: &fakeRW{},
+	}
+	peer.MarkMessageHash(msgHash)
+	peerSets.Register(peer)
+	handler.peers = peerSets
+	return handler
+}
+
+func makeGetPrepareVote(blockNum uint64, blockHash common.Hash) *getPrepareVote {
+	p := &getPrepareVote{
+		Number:         blockNum,
+		Hash:           blockHash,
+		VoteBits: 		NewBitArray(32),
+	}
+	return p
+}
+
+func makePrepareVotes(pri *ecdsa.PrivateKey, timestamp, blockNum uint64, blockHash common.Hash, validatorIndex uint32, validatorAddr common.Address) *prepareVotes {
+	pv := makePrepareVote(pri, timestamp, blockNum, blockHash, validatorIndex, validatorAddr)
+	pvs := &prepareVotes{
+		Hash: blockHash,
+		Number: blockNum,
+		Votes: []*prepareVote{ pv },
+	}
+	return pvs
+}
+
+type fakeRW struct {
+}
+
+func (rw *fakeRW) ReadMsg() (p2p.Msg, error) {
+	fmt.Println("Read msg.")
+	return p2p.Msg{}, nil
+}
+
+func (rw *fakeRW) WriteMsg(msg p2p.Msg) error {
+	fmt.Println("Write msg")
+	if msg.Code == CBFTStatusMsg {
+		return fmt.Errorf("invalid message type")
+	}
+	return nil
+}
+
 func buildViewChangeVote(view *viewChange, validators *testValidator) []*viewChangeVote {
-	viewChangeVotes := make([]*viewChangeVote, 0, len(validators.neibor))
-	for _, node := range validators.neibor {
+	viewChangeVotes := make([]*viewChangeVote, 0, len(validators.neighbors))
+	for _, node := range validators.neighbors {
 		resp := &viewChangeVote{
 			ValidatorIndex: uint32(node.index),
 			ValidatorAddr:  node.address,
