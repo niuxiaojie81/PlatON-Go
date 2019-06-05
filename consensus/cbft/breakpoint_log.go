@@ -2,10 +2,12 @@ package cbft
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
 	"github.com/PlatONnetwork/PlatON-Go/log"
+	"strconv"
 	"time"
 )
 
@@ -52,7 +54,7 @@ type Span struct {
 	Tags         []Tag         `json:"tags"`
 	LogRecords   []LogRecord   `json:"log_records"`
 	//operation name, such as message type
-	OperationName string `json:"operation_time"`
+	OperationName string `json:"operation_name"`
 }
 
 var logBP Breakpoint
@@ -125,8 +127,70 @@ func (bp logPrepareBP) TwoThirdVotes(ctx context.Context, ext *BlockExt, cbft *C
 type logViewChangeBP struct {
 }
 
+func (bp logViewChangeBP) SendViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
+	if err != nil {
+		return
+	}
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  "",
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.Hex(),
+		Processor: validator.Address.Hex(),
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		//DurationTime:
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: uint64(time.Now().UnixNano()),
+				Log:       view,
+			},
+		},
+		OperationName: "send_view_change",
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
+}
+
 func (bp logViewChangeBP) ReceiveViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
-	log.Debug("ReceiveViewChange", "block", view.String(), "cbft", cbft.String())
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
+	if err != nil {
+		return
+	}
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  "",
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.Hex(),
+		Processor: validator.Address.Hex(),
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		//DurationTime:
+		LogRecords: []LogRecord{
+			{
+				Timestamp: uint64(time.Now().UnixNano()),
+				Log:       view,
+			},
+		},
+		OperationName: strconv.FormatUint(MessageType(view), 10),
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
 }
 
 func (bp logViewChangeBP) ReceiveViewChangeVote(ctx context.Context, vote *viewChangeVote, cbft *Cbft) {
@@ -134,7 +198,39 @@ func (bp logViewChangeBP) ReceiveViewChangeVote(ctx context.Context, vote *viewC
 }
 
 func (bp logViewChangeBP) InvalidViewChange(ctx context.Context, view *viewChange, err error, cbft *Cbft) {
-	log.Debug("InvalidViewChange", "view", view.String(), "cbft", cbft.String())
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
+	if err != nil {
+		return
+	}
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.Hex(),
+		Processor: validator.Address.Hex(),
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		//DurationTime:
+		Tags: []Tag{
+			{
+				Key:   "error",
+				Value: err.Error(),
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: uint64(time.Now().UnixNano()),
+				Log:       view,
+			},
+		},
+		OperationName: strconv.FormatUint(MessageType(view), 10),
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
 }
 
 func (bp logViewChangeBP) InvalidViewChangeVote(ctx context.Context, view *viewChangeVote, err error, cbft *Cbft) {
@@ -154,9 +250,34 @@ func (bp logViewChangeBP) SendViewChangeVote(ctx context.Context, vote *viewChan
 
 }
 
-func (bp logViewChangeBP) ViewChangeTimeout(ctx context.Context, cbft *Cbft) {
-	log.Debug("ViewChangeTimeout", "cbft", cbft.String())
-
+func (bp logViewChangeBP) ViewChangeTimeout(ctx context.Context, view *viewChange, cbft *Cbft) {
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
+	if err != nil {
+		return
+	}
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.Hex(),
+		Processor: validator.Address.Hex(),
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		//DurationTime:
+		LogRecords: []LogRecord{
+			{
+				Timestamp: uint64(time.Now().UnixNano()),
+				Log:       view,
+			},
+		},
+		OperationName: strconv.FormatUint(MessageType(view), 10),
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
 }
 
 type logSyncBlockBP struct {
@@ -222,9 +343,34 @@ func (bp logInternalBP) NewHighestRootBlock(ctx context.Context, ext *BlockExt, 
 	log.Debug("NewHighestRootBlock", "block", ext.String(), "cbft", cbft.String())
 }
 
-func (bp logInternalBP) SwitchView(ctx context.Context, view *viewChange) {
-	log.Debug("SwitchView", "view", view.String())
-
+func (bp logInternalBP) SwitchView(ctx context.Context, view *viewChange, cbft *Cbft) {
+	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
+	if err != nil {
+		return
+	}
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.Hex(),
+		Processor: validator.Address.Hex(),
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		//DurationTime:
+		LogRecords: []LogRecord{
+			{
+				Timestamp: uint64(time.Now().UnixNano()),
+				Log:       view,
+			},
+		},
+		OperationName: strconv.FormatUint(MessageType(view), 10),
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
 }
 
 func (bp logInternalBP) Seal(ctx context.Context, ext *BlockExt, cbft *Cbft) {

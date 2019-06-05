@@ -134,6 +134,10 @@ func (bp elkPrepareBP) TwoThirdVotes(ctx context.Context, ext *BlockExt, cbft *C
 type elkViewChangeBP struct {
 }
 
+func (bp elkViewChangeBP) SendViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
+
+}
+
 func (bp elkViewChangeBP) ReceiveViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
 	peerId := ctx.Value("peer")
 	log.Debug("Reporting-ReceiveViewChange", "from", peerId,
@@ -193,7 +197,7 @@ func (bp elkViewChangeBP) SendViewChangeVote(ctx context.Context, vote *viewChan
 
 }
 
-func (bp elkViewChangeBP) ViewChangeTimeout(ctx context.Context, cbft *Cbft) {
+func (bp elkViewChangeBP) ViewChangeTimeout(ctx context.Context, view *viewChange, cbft *Cbft) {
 	//log.Debug("ViewChangeTimeout", "state", state.String())
 }
 
@@ -299,7 +303,7 @@ func (bp elkInternalBP) NewHighestRootBlock(ctx context.Context, ext *BlockExt, 
 	//log.Debug("NewHighestRootBlock", "block", ext.String(), "state", state.String())
 }
 
-func (bp elkInternalBP) SwitchView(ctx context.Context, view *viewChange) {
+func (bp elkInternalBP) SwitchView(ctx context.Context, view *viewChange, cbft *Cbft) {
 	/*log.Debug("Reporting-SwitchView", "from", NONE,
 		"mark", "switchView",
 		"msgHash", view.MsgHash().TerminalString(),

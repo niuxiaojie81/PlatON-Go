@@ -688,6 +688,7 @@ func (cbft *Cbft) OnViewChangeTimeout(view *viewChange) {
 			cbft.handleCache()
 			cbft.log.Info("View change timeout", "current view", cbft.viewChange.String(), "msgHash", view.MsgHash().TerminalString())
 			cbft.resetViewChange()
+			cbft.bp.ViewChangeBP().ViewChangeTimeout(context.TODO(), view, cbft)
 		}
 	}
 
@@ -885,6 +886,7 @@ func (cbft *Cbft) OnSendViewChange() {
 		return
 	}
 	cbft.log.Debug("Send new view", "view", view.String(), "msgHash", view.MsgHash().TerminalString())
+	cbft.bp.ViewChangeBP().SendViewChange(context.TODO(), view, cbft)
 	cbft.handler.SendAllConsensusPeer(view)
 
 	// gauage
@@ -953,7 +955,7 @@ func (cbft *Cbft) OnViewChange(peerID discover.NodeID, view *viewChange) error {
 		cbft.viewChangeVoteTimeoutCh <- resp
 	})
 	cbft.setViewChange(view)
-	cbft.bp.InternalBP().SwitchView(bpCtx, view)
+	cbft.bp.InternalBP().SwitchView(bpCtx, view, cbft)
 	cbft.bp.ViewChangeBP().SendViewChangeVote(bpCtx, resp, cbft)
 	cbft.handler.SendAllConsensusPeer(view)
 	cbft.handler.SendAllConsensusPeer(resp)
