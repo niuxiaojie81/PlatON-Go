@@ -3,11 +3,13 @@ package cbft
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/PlatONnetwork/PlatON-Go/common"
 	"github.com/PlatONnetwork/PlatON-Go/core/types"
+	"github.com/PlatONnetwork/PlatON-Go/crypto"
 	"github.com/PlatONnetwork/PlatON-Go/log"
+	"math/big"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,7 +45,7 @@ type Tag struct {
 }
 
 type LogRecord struct {
-	Timestamp uint64      `json:"timestamp"`
+	Timestamp int64       `json:"timestamp"`
 	Log       interface{} `json:"log"`
 }
 
@@ -58,6 +60,8 @@ type Span struct {
 }
 
 var logBP Breakpoint
+var localAddr atomic.Value
+var localID atomic.Value
 
 func init() {
 	logBP = &defaultBreakpoint{
@@ -71,8 +75,62 @@ func init() {
 type logPrepareBP struct {
 }
 
+func localAddress(cbft *Cbft) string {
+	addr := ""
+	if v := localAddr.Load(); v == nil {
+		if cbft != nil {
+			pub, _ := cbft.config.NodeID.Pubkey()
+			addr = crypto.PubkeyToAddress(*pub).String()
+			localID.Store(cbft.config.NodeID.String())
+			localAddr.Store(addr)
+		}
+	} else {
+		addr = v.(string)
+	}
+	return addr
+}
+
+func localNodeID() string {
+	if v := localID.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
+
 func (bp logPrepareBP) ReceiveBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {
-	log.Debug("ReceiveBlock", "block", block.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   block.Timestamp,
+			SpanID:    block.Block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   block.ProposalAddr.String(),
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "prepare_block",
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "receive_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       block,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logPrepareBP) ReceiveVote(ctx context.Context, vote *prepareVote, cbft *Cbft) {
@@ -81,15 +139,111 @@ func (bp logPrepareBP) ReceiveVote(ctx context.Context, vote *prepareVote, cbft 
 }
 
 func (bp logPrepareBP) AcceptBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {
-	log.Debug("AcceptBlock", "block", block.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   block.Timestamp,
+			SpanID:    block.Block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   block.ProposalAddr.String(),
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "prepare_block",
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "accept_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       block,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logPrepareBP) CacheBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {
-	log.Debug("CacheBlock", "block", block.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   block.Timestamp,
+			SpanID:    block.Block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   block.ProposalAddr.String(),
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "prepare_block",
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "cache_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       block,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logPrepareBP) DiscardBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {
-	log.Debug("DiscardBlock", "block", block.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   block.Timestamp,
+			SpanID:    block.Block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   block.ProposalAddr.String(),
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "discard_prepare_block",
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "discard_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       block,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logPrepareBP) AcceptVote(ctx context.Context, vote *prepareVote, cbft *Cbft) {
@@ -109,7 +263,39 @@ func (bp logPrepareBP) SendPrepareVote(ctx context.Context, ext *BlockExt, cbft 
 }
 
 func (bp logPrepareBP) InvalidBlock(ctx context.Context, block *prepareBlock, err error, cbft *Cbft) {
-	log.Debug("InvalidBlock", "block", block.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   block.Timestamp,
+			SpanID:    block.Block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   block.ProposalAddr.String(),
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "prepare_block",
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "invalid_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       block,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logPrepareBP) InvalidVote(ctx context.Context, vote *prepareVote, err error, cbft *Cbft) {
@@ -128,35 +314,31 @@ type logViewChangeBP struct {
 }
 
 func (bp logViewChangeBP) SendViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
-	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if err != nil {
-		return
-	}
+	processor := localAddress(cbft)
 	context := Context{
 		TraceID:   view.Timestamp,
 		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
-		ParentID:  "",
+		ParentID:  cbft.config.NodeID.String(),
 		Flags:     flagState,
-		Creator:   view.ProposalAddr.Hex(),
-		Processor: validator.Address.Hex(),
+		Creator:   view.ProposalAddr.String(),
+		Processor: processor,
 	}
 	span := &Span{
 		Context:   context,
 		StartTime: time.Now(),
-		//DurationTime:
 		Tags: []Tag{
 			{
-				Key:   "peer_id",
-				Value: ctx.Value("peer"),
+				Key:   "action",
+				Value: "send_view_change",
 			},
 		},
 		LogRecords: []LogRecord{
 			{
-				Timestamp: uint64(time.Now().UnixNano()),
+				Timestamp: time.Now().UnixNano(),
 				Log:       view,
 			},
 		},
-		OperationName: "send_view_change",
+		OperationName: "view_change",
 	}
 	if data, err := json.Marshal(span); err == nil {
 		log.Info(string(data))
@@ -164,29 +346,35 @@ func (bp logViewChangeBP) SendViewChange(ctx context.Context, view *viewChange, 
 }
 
 func (bp logViewChangeBP) ReceiveViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
-	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if err != nil {
-		return
-	}
+	processor := localAddress(cbft)
 	context := Context{
 		TraceID:   view.Timestamp,
 		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
-		ParentID:  "",
+		ParentID:  cbft.config.NodeID.String(),
 		Flags:     flagState,
-		Creator:   view.ProposalAddr.Hex(),
-		Processor: validator.Address.Hex(),
+		Creator:   view.ProposalAddr.String(),
+		Processor: processor,
 	}
 	span := &Span{
 		Context:   context,
 		StartTime: time.Now(),
-		//DurationTime:
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "receive_view_change",
+			},
+		},
 		LogRecords: []LogRecord{
 			{
-				Timestamp: uint64(time.Now().UnixNano()),
+				Timestamp: time.Now().UnixNano(),
 				Log:       view,
 			},
 		},
-		OperationName: strconv.FormatUint(MessageType(view), 10),
+		OperationName: "view_change",
 	}
 	if data, err := json.Marshal(span); err == nil {
 		log.Info(string(data))
@@ -198,35 +386,39 @@ func (bp logViewChangeBP) ReceiveViewChangeVote(ctx context.Context, vote *viewC
 }
 
 func (bp logViewChangeBP) InvalidViewChange(ctx context.Context, view *viewChange, err error, cbft *Cbft) {
-	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if err != nil {
-		return
-	}
+	processor := localAddress(cbft)
 	context := Context{
 		TraceID:   view.Timestamp,
 		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
-		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  cbft.config.NodeID.String(),
 		Flags:     flagState,
-		Creator:   view.ProposalAddr.Hex(),
-		Processor: validator.Address.Hex(),
+		Creator:   view.ProposalAddr.String(),
+		Processor: processor,
 	}
 	span := &Span{
 		Context:   context,
 		StartTime: time.Now(),
-		//DurationTime:
 		Tags: []Tag{
 			{
-				Key:   "error",
-				Value: err.Error(),
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "invalid_view_change",
 			},
 		},
 		LogRecords: []LogRecord{
 			{
-				Timestamp: uint64(time.Now().UnixNano()),
+				Timestamp: time.Now().UnixNano(),
 				Log:       view,
 			},
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       err.Error(),
+			},
 		},
-		OperationName: strconv.FormatUint(MessageType(view), 10),
+		OperationName: "view_change",
 	}
 	if data, err := json.Marshal(span); err == nil {
 		log.Info(string(data))
@@ -238,7 +430,39 @@ func (bp logViewChangeBP) InvalidViewChangeVote(ctx context.Context, view *viewC
 }
 
 func (bp logViewChangeBP) InvalidViewChangeBlock(ctx context.Context, view *viewChange, cbft *Cbft) {
-	log.Debug("InvalidViewChangeBlock", "view", view.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+	context := Context{
+		TraceID:   view.Timestamp,
+		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  cbft.config.NodeID.String(),
+		Flags:     flagState,
+		Creator:   view.ProposalAddr.String(),
+		Processor: processor,
+	}
+	span := &Span{
+		Context:   context,
+		StartTime: time.Now(),
+		Tags: []Tag{
+			{
+				Key:   "peer_id",
+				Value: ctx.Value("peer"),
+			},
+			{
+				Key:   "action",
+				Value: "invalid_view_change_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       view,
+			},
+		},
+		OperationName: "view_change",
+	}
+	if data, err := json.Marshal(span); err == nil {
+		log.Info(string(data))
+	}
 }
 
 func (bp logViewChangeBP) TwoThirdViewChangeVotes(ctx context.Context, cbft *Cbft) {
@@ -251,29 +475,31 @@ func (bp logViewChangeBP) SendViewChangeVote(ctx context.Context, vote *viewChan
 }
 
 func (bp logViewChangeBP) ViewChangeTimeout(ctx context.Context, view *viewChange, cbft *Cbft) {
-	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if err != nil {
-		return
-	}
+	processor := localAddress(cbft)
 	context := Context{
 		TraceID:   view.Timestamp,
 		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
-		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
+		ParentID:  cbft.config.NodeID.String(),
 		Flags:     flagState,
-		Creator:   view.ProposalAddr.Hex(),
-		Processor: validator.Address.Hex(),
+		Creator:   view.ProposalAddr.String(),
+		Processor: processor,
 	}
 	span := &Span{
 		Context:   context,
 		StartTime: time.Now(),
-		//DurationTime:
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "timeout_view_change",
+			},
+		},
 		LogRecords: []LogRecord{
 			{
-				Timestamp: uint64(time.Now().UnixNano()),
+				Timestamp: time.Now().UnixNano(),
 				Log:       view,
 			},
 		},
-		OperationName: strconv.FormatUint(MessageType(view), 10),
+		OperationName: "view_change",
 	}
 	if data, err := json.Marshal(span); err == nil {
 		log.Info(string(data))
@@ -284,37 +510,245 @@ type logSyncBlockBP struct {
 }
 
 func (bp logSyncBlockBP) SyncBlock(ctx context.Context, ext *BlockExt, cbft *Cbft) {
-	log.Debug("SyncBlock", "block", ext.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
 
+	creator := ""
+	if ext.view != nil {
+		creator = ext.view.ProposalAddr.String()
+	}
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    ext.block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   creator,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "sync_block",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "sync_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       ext,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logSyncBlockBP) InvalidBlock(ctx context.Context, ext *BlockExt, err error, cbft *Cbft) {
-	log.Debug("InvalidBlock", "block", ext.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
 
+	creator := ""
+	if ext.view != nil {
+		creator = ext.view.ProposalAddr.String()
+	}
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    ext.block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   creator,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "sync_block",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "sync_invalid_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       ext,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 type logInternalBP struct {
 }
 
-func (bp logInternalBP) ExecuteBlock(ctx context.Context, hash common.Hash, number uint64, elapse time.Duration) {
-	log.Debug("ExecuteBlock", "hash", hash, "number", number, "elapse", elapse.Seconds())
+func (bp logInternalBP) ExecuteBlock(ctx context.Context, hash common.Hash, number uint64, timestamp uint64, elapse time.Duration) {
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+
+	span := &Span{
+		Context: Context{
+			TraceID:   timestamp,
+			SpanID:    big.NewInt(int64(number)).String(),
+			ParentID:  localNodeID(),
+			Creator:   "",
+			Processor: localAddress(nil),
+		},
+		StartTime:     time.Now(),
+		DurationTime:  elapse,
+		OperationName: "execute_block",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "execute_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   hash,
+					Number: number,
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
-func (bp logInternalBP) InvalidBlock(ctx context.Context, hash common.Hash, number uint64, err error) {
-	log.Debug("InvalidBlock", "hash", hash, number, number)
+func (bp logInternalBP) InvalidBlock(ctx context.Context, hash common.Hash, number uint64, timestamp uint64, err error) {
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+		Error  string      `json:"error"`
+	}
+
+	span := &Span{
+		Context: Context{
+			TraceID:   timestamp,
+			SpanID:    big.NewInt(int64(number)).String(),
+			ParentID:  localNodeID(),
+			Creator:   "",
+			Processor: localAddress(nil),
+		},
+		StartTime:     time.Now(),
+		OperationName: "execute_block",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "execute_invalid_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   hash,
+					Number: number,
+					Error:  err.Error(),
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 
 }
 
 func (bp logInternalBP) ForkedResetTxPool(ctx context.Context, newHeader *types.Header, injectBlock types.Blocks, elapse time.Duration, cbft *Cbft) {
-	log.Debug("ForkedResetTxPool",
-		"newHeader", fmt.Sprintf("[hash:%s, number:%d]", newHeader.Hash().TerminalString(), newHeader.Number.Uint64()),
-		"block", injectBlock.String(), "elapse", elapse.Seconds(), "cbft", cbft.String())
-
+	if cbft.viewChange == nil {
+		return
+	}
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+	processor := localAddress(cbft)
+	var hash []common.Hash
+	for _, b := range injectBlock {
+		hash = append(hash, b.Hash())
+	}
+	span := &Span{
+		Context: Context{
+			TraceID:   cbft.viewChange.Timestamp,
+			SpanID:    injectBlock.String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		DurationTime:  elapse,
+		OperationName: "tx_pool",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "forked_reset_tx_pool",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       newHeader,
+			},
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       hash,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logInternalBP) ResetTxPool(ctx context.Context, ext *BlockExt, elapse time.Duration, cbft *Cbft) {
-	log.Debug("ResetTxPool", "block", ext.String(), "elapse", elapse.Seconds(), "cbft", cbft.String())
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+	processor := localAddress(cbft)
 
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    big.NewInt(int64(ext.number)).String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		DurationTime:  elapse,
+		OperationName: "tx_pool",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "reset_tx_pool",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   ext.block.Hash(),
+					Number: ext.number,
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logInternalBP) NewConfirmedBlock(ctx context.Context, ext *BlockExt, cbft *Cbft) {
@@ -332,47 +766,183 @@ func (bp logInternalBP) NewRootBlock(ctx context.Context, ext *BlockExt, cbft *C
 }
 
 func (bp logInternalBP) NewHighestConfirmedBlock(ctx context.Context, ext *BlockExt, cbft *Cbft) {
-	log.Debug("NewHighestConfirmedBlock", "block", ext.String(), "cbft", cbft.String())
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    big.NewInt(int64(ext.number)).String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "chain_state",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "new_highest_confirmed_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   ext.block.Hash(),
+					Number: ext.number,
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logInternalBP) NewHighestLogicalBlock(ctx context.Context, ext *BlockExt, cbft *Cbft) {
-	log.Debug("NewHighestLogicalBlock", "block", ext.String(), "cbft", cbft.String())
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    big.NewInt(int64(ext.number)).String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "chain_state",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "new_highest_logical_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   ext.block.Hash(),
+					Number: ext.number,
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logInternalBP) NewHighestRootBlock(ctx context.Context, ext *BlockExt, cbft *Cbft) {
-	log.Debug("NewHighestRootBlock", "block", ext.String(), "cbft", cbft.String())
+	type HashNumber struct {
+		Hash   common.Hash `json:"block_hash"`
+		Number uint64      `json:"block_number"`
+	}
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    big.NewInt(int64(ext.number)).String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "chain_state",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "new_highest_root_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log: &HashNumber{
+					Hash:   ext.block.Hash(),
+					Number: ext.number,
+				},
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
 
 func (bp logInternalBP) SwitchView(ctx context.Context, view *viewChange, cbft *Cbft) {
-	validator, err := cbft.getValidators().NodeIndexAddress(cbft.config.NodeID)
-	if err != nil {
-		return
-	}
-	context := Context{
-		TraceID:   view.Timestamp,
-		SpanID:    strconv.FormatUint(view.BaseBlockNum, 10),
-		ParentID:  strconv.FormatUint(view.BaseBlockNum, 10),
-		Flags:     flagState,
-		Creator:   view.ProposalAddr.Hex(),
-		Processor: validator.Address.Hex(),
-	}
+	processor := localAddress(cbft)
+
 	span := &Span{
-		Context:   context,
-		StartTime: time.Now(),
-		//DurationTime:
+		Context: Context{
+			TraceID:   view.Timestamp,
+			SpanID:    big.NewInt(int64(view.BaseBlockNum)).String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "view_state",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "switch_view",
+			},
+		},
 		LogRecords: []LogRecord{
 			{
-				Timestamp: uint64(time.Now().UnixNano()),
+				Timestamp: time.Now().UnixNano(),
 				Log:       view,
 			},
 		},
-		OperationName: strconv.FormatUint(MessageType(view), 10),
 	}
-	if data, err := json.Marshal(span); err == nil {
-		log.Info(string(data))
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
 	}
+
 }
 
 func (bp logInternalBP) Seal(ctx context.Context, ext *BlockExt, cbft *Cbft) {
-	log.Debug("SwitchView", "block", ext.String(), "cbft", cbft.String())
+	processor := localAddress(cbft)
+
+	span := &Span{
+		Context: Context{
+			TraceID:   ext.timestamp,
+			SpanID:    ext.block.Number().String(),
+			ParentID:  cbft.config.NodeID.String(),
+			Creator:   processor,
+			Processor: processor,
+		},
+		StartTime:     time.Now(),
+		OperationName: "seal_block",
+		Tags: []Tag{
+			{
+				Key:   "action",
+				Value: "new_highest_root_block",
+			},
+		},
+		LogRecords: []LogRecord{
+			{
+				Timestamp: time.Now().UnixNano(),
+				Log:       ext,
+			},
+		},
+	}
+	msg, err := json.Marshal(span)
+	if err == nil {
+		log.Info(string(msg))
+	}
 }
