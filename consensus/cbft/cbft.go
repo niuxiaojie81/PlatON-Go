@@ -431,6 +431,7 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 	case *prepareBlockHash:
 		err = cbft.OnPrepareBlockHash(peerID, msg)
 	}
+
 	if err != nil {
 		cbft.log.Error("Handle msg Failed", "error", err, "type", reflect.TypeOf(msg), "peer", peerID)
 	} else if !cbft.isLoading() {
@@ -438,6 +439,7 @@ func (cbft *Cbft) handleMsg(info *MsgInfo) {
 		cbft.wal.Write(info)
 	}
 }
+
 func (cbft *Cbft) isRunning() bool {
 	return atomic.LoadInt32(&cbft.running) == 1
 }
