@@ -83,9 +83,6 @@ var (
 	maxBlockDist = uint64(192)
 
 	maxQueuesLimit = 4096
-
-	maxViewProducerBlocksLimit = 10
-
 )
 
 type Cbft struct {
