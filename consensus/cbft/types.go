@@ -316,6 +316,12 @@ func (cbft *Cbft) hadSendViewChange() bool {
 	return cbft.viewChanging() && cbft.master
 }
 
+func (cbft *Cbft) validViewChange() bool {
+	//check current timestamp match view's timestamp
+	now := time.Now().Unix()
+	return (now-int64(cbft.viewChange.Timestamp) < cbft.config.Duration) && (cbft.producerBlocks == nil || cbft.producerBlocks.Len() < maxViewProducerBlocksLimit)
+}
+
 func (cbft *Cbft) viewChanging() bool {
 	return cbft.viewChange != nil
 }
