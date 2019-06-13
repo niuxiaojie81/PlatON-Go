@@ -1296,7 +1296,15 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64, 
 			localTxs[account] = txs
 		}
 	}
-	log.Debug("execute pending transactions", "hash", commitBlock.Hash(), "number", commitBlock.NumberU64(), "localTxCount", len(localTxs), "remoteTxCount", len(remoteTxs), "txsCount", txsCount)
+	localTxsCount := 0
+	remoteTxsCount := 0
+	for _, laccTxs := range localTxs {
+		localTxsCount = localTxsCount + len(laccTxs)
+	}
+	for _, raccTxs := range remoteTxs {
+		remoteTxsCount = remoteTxsCount + len(raccTxs)
+	}
+	log.Debug("execute pending transactions", "hash", commitBlock.Hash(), "number", commitBlock.NumberU64(), "localTxCount", localTxsCount, "remoteTxCount", remoteTxsCount, "txsCount", txsCount)
 
 	startTime = time.Now()
 	var localTimeout = false

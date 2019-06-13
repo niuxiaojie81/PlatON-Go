@@ -821,6 +821,7 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 	cbft.bp.InternalBP().Seal(context.TODO(), current, cbft)
 	cbft.bp.InternalBP().NewHighestLogicalBlock(context.TODO(), current, cbft)
 	cbft.SetLocalHighestPrepareNum(current.number)
+	cbft.reset(sealedBlock)
 	if cbft.getValidators().Len() == 1 {
 		cbft.log.Debug("Single node mode, confirm now")
 		//only one consensus node, so, each block is highestConfirmed. (lock is needless)
@@ -844,7 +845,7 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 		case sealResultCh <- sealedBlock:
 			//reset pool when seal block
 			//start := time.Now()
-			cbft.reset(sealedBlock)
+			//cbft.reset(sealedBlock)
 			//cbft.bp.InternalBP().ResetTxPool(context.TODO(), current, time.Now().Sub(start), cbft)
 
 		default:
@@ -968,6 +969,8 @@ func (cbft *Cbft) OnViewChange(peerID discover.NodeID, view *viewChange) error {
 		cbft.viewChangeVoteTimeoutCh <- resp
 	})
 	cbft.setViewChange(view)
+	// add to viewChangeVote When the viewChange is approved by self
+	cbft.viewChangeVotes[resp.ValidatorAddr] = resp
 	cbft.bp.InternalBP().SwitchView(bpCtx, view, cbft)
 	cbft.bp.ViewChangeBP().SendViewChangeVote(bpCtx, resp, cbft)
 	//cbft.handler.SendAllConsensusPeer(view)
