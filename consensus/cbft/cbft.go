@@ -2241,5 +2241,5 @@ func (cbft *Cbft) AddJournal(msg *MsgInfo) {
 }
 
 func (cbft *Cbft) CommitBlockBP(block *types.Block, txs int, gasUsed uint64, elapse time.Duration) {
-	cbft.bp.PrepareBP().CommitBlock(context.TODO(), block, elapse, cbft)
+	cbft.bp.PrepareBP().CommitBlock(context.TODO(), block, txs, gasUsed, elapse, cbft)
 }
