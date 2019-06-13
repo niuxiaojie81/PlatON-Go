@@ -134,6 +134,10 @@ func (bp elkPrepareBP) TwoThirdVotes(ctx context.Context, ext *prepareVote, cbft
 type elkViewChangeBP struct {
 }
 
+func (bp elkViewChangeBP) SendViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
+
+}
+
 func (bp elkViewChangeBP) ReceiveViewChange(ctx context.Context, view *viewChange, cbft *Cbft) {
 	peerId := ctx.Value("peer")
 	log.Debug("Reporting-ReceiveViewChange", "from", peerId,
@@ -184,7 +188,7 @@ func (bp elkViewChangeBP) InvalidViewChangeBlock(ctx context.Context, view *view
 	//log.Debug("InvalidViewChangeBlock", "view", view.String(), "state", state.String())
 }
 
-func (bp elkViewChangeBP) TwoThirdViewChangeVotes(ctx context.Context, cbft *Cbft) {
+func (bp elkViewChangeBP) TwoThirdViewChangeVotes(ctx context.Context, view *viewChange, votes ViewChangeVotes, cbft *Cbft) {
 	//log.Debug("TwoThirdViewChangeVotes", "state", state.String())
 }
 
@@ -193,7 +197,7 @@ func (bp elkViewChangeBP) SendViewChangeVote(ctx context.Context, vote *viewChan
 
 }
 
-func (bp elkViewChangeBP) ViewChangeTimeout(ctx context.Context, cbft *Cbft) {
+func (bp elkViewChangeBP) ViewChangeTimeout(ctx context.Context, view *viewChange, cbft *Cbft) {
 	//log.Debug("ViewChangeTimeout", "state", state.String())
 }
 
