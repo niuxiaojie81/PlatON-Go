@@ -1366,6 +1366,7 @@ func (w *worker) commit(interval func(), update bool, start time.Time) error {
 
 			log.Debug("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()), "receiptHash", block.ReceiptHash(),
 				"txs", w.current.tcount, "gas", block.GasUsed(), "fees", feesEth, "elapsed", common.PrettyDuration(time.Since(start)))
+			w.engine.(consensus.Bft).CommitBlockBP(block, time.Since(start))
 
 		case <-w.exitCh:
 			log.Info("Worker has exited")

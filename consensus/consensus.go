@@ -164,4 +164,6 @@ type Bft interface {
 	IsSignedBySelf(sealHash common.Hash, signature []byte) bool
 
 	Evidences() string
+
+	CommitBlockBP(block *types.Block, elapse time.Duration)
 }

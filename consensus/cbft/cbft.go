@@ -1053,7 +1053,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 	}
 
 	ext := cbft.blockExtMap.findBlock(request.Block.Hash(), request.Block.NumberU64())
-	if cbft.blockChain.HasBlock(request.Block.Hash(), request.Block.NumberU64()) || (ext != nil && ext.block != nil) {
+	if (ext != nil && ext.block != nil) || cbft.blockChain.HasBlock(request.Block.Hash(), request.Block.NumberU64()) {
 		log.Warn("Block already in blockchain, discard this msg", "prepare block", request.String())
 		return nil
 	}
@@ -1831,6 +1831,7 @@ func (cbft *Cbft) storeBlocks(blocksToStore []*BlockExt) {
 			SyncState: ext.syncState,
 		}
 		cbft.log.Debug("Send consensus result to worker", "block", ext.String())
+		cbft.bp.InternalBP().StoreBlock(context.TODO(), ext, cbft)
 		cbft.eventMux.Post(cbftResult)
 	}
 }
@@ -2237,4 +2238,8 @@ func (cbft *Cbft) AddJournal(msg *MsgInfo) {
 	cbft.log.Debug("Method:LoadPeerMsg received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
 	//cbft.handleMsg(msg)
 	cbft.ReceivePeerMsg(msg)
+}
+
+func (cbft *Cbft) CommitBlockBP(block *types.Block, elapse time.Duration) {
+	cbft.bp.PrepareBP().CommitBlock(context.TODO(), block, elapse, cbft)
 }

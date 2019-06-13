@@ -496,7 +496,7 @@ func (pool *TxPool) Reset(newBlock *types.Block) {
 	if newBlock.NumberU64() < pool.chain.CurrentBlock().NumberU64() {
 		atomic.StoreInt32(&pool.rstFlag, DoingRst)
 	}
-	log.Debug("call Reset takes time", "RoutineID", common.CurrentGoRoutineID(), "hash", newBlock.Hash(), "number", newBlock.NumberU64(), "parentHash", newBlock.ParentHash(), "takesTime", common.PrettyDuration(time.Since(startTime)))
+	log.Debug("call Reset elapse time", "RoutineID", common.CurrentGoRoutineID(), "hash", newBlock.Hash(), "number", newBlock.NumberU64(), "parentHash", newBlock.ParentHash(), "elapseTime", common.PrettyDuration(time.Since(startTime)))
 }
 
 func (pool *TxPool) ForkedReset(newHeader *types.Header, rollback []*types.Block) {
