@@ -17,7 +17,7 @@ type Breakpoint interface {
 }
 
 type PrepareBP interface {
-	CommitBlock(ctx context.Context, block *types.Block, elapse time.Duration, cbft *Cbft)
+	CommitBlock(ctx context.Context, block *types.Block, txs int, gasUsed uint64, elapse time.Duration, cbft *Cbft)
 	SendBlock(ctx context.Context, block *prepareBlock, cbft *Cbft)
 	ReceiveBlock(ctx context.Context, block *prepareBlock, cbft *Cbft)
 	ReceiveVote(ctx context.Context, block *prepareVote, cbft *Cbft)
@@ -122,7 +122,7 @@ func (bp defaultBreakpoint) SyncBlockBP() SyncBlockBP {
 type defaultPrepareBP struct {
 }
 
-func (bp defaultPrepareBP) CommitBlock(ctx context.Context, block *types.Block, elapse time.Duration, cbft *Cbft) {
+func (bp defaultPrepareBP) CommitBlock(ctx context.Context, block *types.Block, txs int, gasUsed uint64, elapse time.Duration, cbft *Cbft) {
 }
 
 func (bp defaultPrepareBP) SendBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {

@@ -27,7 +27,7 @@ func init() {
 type elkPrepareBP struct {
 }
 
-func (bp elkPrepareBP) CommitBlock(ctx context.Context, block *types.Block, elapse time.Duration, cbft *Cbft) {
+func (bp elkPrepareBP) CommitBlock(ctx context.Context, block *types.Block, txs int, gasUsed uint64, elapse time.Duration, cbft *Cbft) {
 }
 
 func (bp elkPrepareBP) SendBlock(ctx context.Context, block *prepareBlock, cbft *Cbft) {

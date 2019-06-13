@@ -2240,6 +2240,6 @@ func (cbft *Cbft) AddJournal(msg *MsgInfo) {
 	cbft.ReceivePeerMsg(msg)
 }
 
-func (cbft *Cbft) CommitBlockBP(block *types.Block, elapse time.Duration) {
+func (cbft *Cbft) CommitBlockBP(block *types.Block, txs int, gasUsed uint64, elapse time.Duration) {
 	cbft.bp.PrepareBP().CommitBlock(context.TODO(), block, elapse, cbft)
 }

@@ -103,7 +103,12 @@ func localNodeID() string {
 	return ""
 }
 
-func (bp logPrepareBP) CommitBlock(ctx context.Context, block *types.Block, elapse time.Duration, cbft *Cbft) {
+func (bp logPrepareBP) CommitBlock(ctx context.Context, block *types.Block, txs int, gasUsed uint64, elapse time.Duration, cbft *Cbft) {
+	type CommitBlock struct {
+		Block   *types.Block `json:"block"`
+		txs     int          `json:"txs"`
+		gasUsed uint64       `json:"gas_used"`
+	}
 	processor := localAddress(cbft)
 	span := &Span{
 		Context: Context{
@@ -129,7 +134,11 @@ func (bp logPrepareBP) CommitBlock(ctx context.Context, block *types.Block, elap
 		LogRecords: []LogRecord{
 			{
 				Timestamp: time.Now().UnixNano(),
-				Log:       block,
+				Log: &CommitBlock{
+					Block:   block,
+					txs:     txs,
+					gasUsed: gasUsed,
+				},
 			},
 		},
 	}
