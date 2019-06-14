@@ -726,6 +726,8 @@ func (cbft *Cbft) broadcastBlock(ext *BlockExt) {
 		return
 	} else {
 		log.Debug("Send block", "nodeID", cbft.config.NodeID, "number", ext.block.Number(), "hash", ext.block.Hash())
+		cbft.bp.PrepareBP().SendBlock(context.TODO(), p, cbft)
+
 		cbft.handler.SendAllConsensusPeer(p)
 	}
 }
@@ -857,6 +859,10 @@ func (b BlockExt) MarshalJSON() ([]byte, error) {
 		RcvTime:         b.rcvTime,
 		ViewChangeVotes: len(b.viewChangeVotes),
 		PrepareVotes:    b.prepareVotes.Len(),
+	}
+	if b.block != nil {
+		ext.Hash = b.block.Hash()
+		ext.Parent = b.block.ParentHash()
 	}
 
 	return json.Marshal(&ext)
