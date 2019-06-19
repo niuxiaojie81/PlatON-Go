@@ -16,7 +16,7 @@ import (
 var (
 	viewChangeNumber = uint64(100)
 	viewChangeHash   = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065747")
-	times            = 1000000
+	times            = 100
 	tempDir          string
 	wal              Wal
 )
@@ -112,10 +112,25 @@ func TestWalWrite(t *testing.T) {
 				Msg: buildPrepareBlockHash(),
 				PeerID: buildPeerId(),
 			})
+		 } else if ordinal == 12 {
+			err = getWal().Write(&MsgInfo{
+				Msg: buildSendPrepareBlock(),
+				PeerID: buildPeerId(),
+			})
+		} else if ordinal == 13 {
+			err = getWal().Write(&MsgInfo{
+				Msg: buildSendViewChange(),
+				PeerID: buildPeerId(),
+			})
+		} else if ordinal == 14 {
+			err = getWal().Write(&MsgInfo{
+				Msg: buildConfirmedViewChange(),
+				PeerID: buildPeerId(),
+			})
 		}
 		if err != nil {
 			t.Log("write error", err)
-			t.Errorf("%s", "write error")
+			t.Fatalf("%s", "write error")
 		}
 		count ++
 	}
@@ -123,7 +138,7 @@ func TestWalWrite(t *testing.T) {
 	wal = nil
 	t.Log("write total msg info", count)
 	if count != times {
-		t.Errorf("%s", "write error")
+		t.Fatalf("%s", "write error")
 	}
 	endTime := uint64(time.Now().UnixNano())
 	t.Log("write elapsed time", endTime-beginTime)
@@ -139,23 +154,22 @@ func TestWalLoad(t *testing.T) {
 	})
 	if err != nil {
 		t.Log("load error", err)
-		t.Errorf("%s", "load error")
+		t.Fatalf("%s", "load error")
 	}
 	getWal().Close() // force flush
 	wal = nil
 	t.Log("total msg info", count)
 	if count != times {
-		t.Errorf("%s", "load error")
+		t.Fatalf("%s", "load error")
 	}
 	endTime := uint64(time.Now().UnixNano())
 	t.Log("load elapsed time", endTime-beginTime)
-
 }
 
 func TestLevelDB(t *testing.T) {
 	path := filepath.Join(tempDir, "wal_meta")
 	if db, err := leveldb.OpenFile(path, nil); err != nil {
-		t.Errorf("%s", "TestLevelDB error")
+		t.Fatalf("%s", "TestLevelDB error")
 	} else {
 		data, err := db.Get([]byte("view-change"), nil)
 		if err == nil {
@@ -167,12 +181,12 @@ func TestLevelDB(t *testing.T) {
 				t.Log(v.Seq)
 				db.Close()
 				if v.Number != 100 || v.Hash.Hex() != viewChangeHash.Hex() {
-					t.Errorf("%s", "TestLevelDB error")
+					t.Fatalf("%s", "TestLevelDB error")
 				}
 			}
 		} else {
 			db.Close()
-			t.Errorf("%s", "TestLevelDB error")
+			t.Fatalf("%s", "TestLevelDB error")
 		}
 	}
 }

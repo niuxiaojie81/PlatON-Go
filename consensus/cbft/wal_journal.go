@@ -200,9 +200,9 @@ func encodeJournal(msg *JournalMessage) ([]byte, error) {
 	totalLength := 10 + int(length)
 
 	pack := make([]byte, totalLength)
-	binary.BigEndian.PutUint32(pack[0:4], crc)                                // 4 byte
-	binary.BigEndian.PutUint32(pack[4:8], length)                             // 4 byte
-	binary.BigEndian.PutUint16(pack[8:10], uint16(MessageType(msg.Data.Msg))) // 2 byte
+	binary.BigEndian.PutUint32(pack[0:4], crc)                                   // 4 byte
+	binary.BigEndian.PutUint32(pack[4:8], length)                                // 4 byte
+	binary.BigEndian.PutUint16(pack[8:10], uint16(WalMessageType(msg.Data.Msg))) // 2 byte
 
 	copy(pack[10:], data)
 	return pack, nil

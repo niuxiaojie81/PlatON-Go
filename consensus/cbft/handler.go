@@ -61,7 +61,7 @@ func (h *baseHandler) sendLoop() {
 	for {
 		select {
 		case m := <-h.sendQueue:
-			if m == nil {
+			if m == nil || h.cbft.isLoading() {
 				return
 			}
 			if len(m.peerID) == 0 {

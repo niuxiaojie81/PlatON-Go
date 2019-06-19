@@ -74,7 +74,7 @@ type Message interface {
 }
 
 type MsgInfo struct {
-	Msg    Message
+	Msg    interface{}
 	PeerID discover.NodeID
 }
 
