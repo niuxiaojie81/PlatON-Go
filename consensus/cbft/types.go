@@ -325,12 +325,6 @@ func (cbft *Cbft) viewVoteState() string {
 	return state
 }
 
-func (cbft *Cbft) HadSendViewChange() bool {
-	//cbft.mux.Lock()
-	//defer cbft.mux.Unlock()
-	return cbft.hadSendViewChange()
-}
-
 func (cbft *Cbft) hadSendViewChange() bool {
 	return cbft.viewChanging() && cbft.master
 }

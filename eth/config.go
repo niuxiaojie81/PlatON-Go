@@ -47,7 +47,7 @@ var DefaultConfig = Config{
 		Epoch:            250000,
 		MaxLatency:       600,
 		LegalCoefficient: 1.0,
-		Duration:         120,
+		Duration:         60,
 		BlockInterval:    100,
 	},
 	NetworkId:     1,

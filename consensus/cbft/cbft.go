@@ -780,7 +780,7 @@ func (cbft *Cbft) OnBaseBlock(ch chan *types.Block) {
 
 //to sign the block, and store the sign to header.Extra[32:], send the sign to chanel to broadcast to other consensus nodes
 func (cbft *Cbft) Seal(chain consensus.ChainReader, block *types.Block, sealResultCh chan<- *types.Block, stopCh <-chan struct{}) error {
-	cbft.log.Info("Seal block", "number", block.NumberU64(), "parentHash", block.ParentHash())
+	cbft.log.Info("#######################Seal block#######################", "number", block.NumberU64(), "parentHash", block.ParentHash())
 	header := block.Header()
 
 	number := block.NumberU64()
@@ -1114,7 +1114,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 		return errInvalidatorCandidateAddress
 	}
 
-	cbft.log.Debug("Receive prepare block", "number", request.Block.NumberU64(), "ViewChangeVotes", len(request.ViewChangeVotes))
+	cbft.log.Debug("Receive prepare block", "number", request.Block.NumberU64(), "hash", request.Block.Hash(), "peer", nodeId, "ViewChangeVotes", len(request.ViewChangeVotes))
 	ext = NewBlockExtByPrepareBlock(request, cbft.nodeLength())
 
 	if len(request.ViewChangeVotes) != 0 && request.View != nil {
@@ -2285,10 +2285,13 @@ func (cbft *Cbft) AddJournal(info *MsgInfo) {
 
 	switch msg := msg.(type) {
 	case *sendPrepareBlock:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendPrepareBlock", msg.PrepareBlock.String())
 		cbft.sealBlockProcess(msg.PrepareBlock.Block)
 	case *sendViewChange:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendViewChange", msg.ViewChange.String(), "master", msg.Master)
 		cbft.newViewChangeProcess(msg.ViewChange)
 	case *confirmedViewChange:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "confirmedViewChange", msg.ViewChange.String())
 		if msg.Master {
 			cbft.newViewChangeProcess(msg.ViewChange)
 		} else {

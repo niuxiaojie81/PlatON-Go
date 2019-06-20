@@ -196,8 +196,9 @@ func buildConfirmedViewChange() *confirmedViewChange {
 	votes = append(votes, buildviewChangeVote())
 	votes = append(votes, buildviewChangeVote())
 	return &confirmedViewChange{
-		ViewChange:      buildViewChange(),
-		ViewChangeResp:  buildviewChangeVote(),
+		ViewChange: buildViewChange(),
+		//ViewChangeResp:  buildviewChangeVote(),
+		ViewChangeResp:  nil,
 		ViewChangeVotes: votes,
 		Master:          true,
 	}

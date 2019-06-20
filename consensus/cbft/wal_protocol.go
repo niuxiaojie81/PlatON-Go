@@ -18,7 +18,7 @@ type sendViewChange struct {
 
 type confirmedViewChange struct {
 	ViewChange      *viewChange
-	ViewChangeResp  *viewChangeVote
+	ViewChangeResp  *viewChangeVote `rlp:"nil"`
 	ViewChangeVotes []*viewChangeVote
 	Master          bool
 }
