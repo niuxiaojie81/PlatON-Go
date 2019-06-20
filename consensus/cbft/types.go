@@ -519,7 +519,6 @@ func (cbft *Cbft) pendingProcess() {
 		cbft.log.Debug("Handle cache pending votes", "hash", v.Block.Hash(), "number", v.Block.Number())
 		cbft.handler.SendAllConsensusPeer(v)
 	}
-
 }
 
 func (cbft *Cbft) AddProcessingVote(nodeId discover.NodeID, vote *prepareVote) {
