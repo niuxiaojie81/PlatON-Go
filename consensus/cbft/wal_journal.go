@@ -162,7 +162,7 @@ func (journal *journal) CurrentJournal() (uint32, uint64, error) {
 }
 
 // insert adds the specified JournalMessage to the local disk journal.
-func (journal *journal) Insert(msg *JournalMessage) error {
+func (journal *journal) Insert(msg *JournalMessage, sync bool) error {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 
@@ -180,12 +180,17 @@ func (journal *journal) Insert(msg *JournalMessage) error {
 		return err
 	}
 
-	n, err := journal.writer.Write(buf)
-	if err == nil && n > 0 {
-		log.Trace("Successful to insert journal message", "n", n)
-		return nil
+	n := 0
+	if n, err = journal.writer.Write(buf); (err != nil || n <= 0) {
+		return err
 	}
-	return err
+	if sync {
+		// Forced to flush
+		journal.writer.Flush()
+	}
+
+	log.Trace("Successful to insert journal message", "n", n)
+	return nil
 }
 
 func encodeJournal(msg *JournalMessage) ([]byte, error) {
@@ -344,7 +349,7 @@ func (journal *journal) loadJournal(fileID uint32, seq uint64, add func(info *Ms
 		_crc := crc32.Checksum(pack[10:], crc32c)
 		if crc != _crc {
 			log.Error("crc is invalid", "crc", crc, "_crc", _crc)
-			return errLoadJournal
+			//return errLoadJournal
 		}
 
 		// decode journal message

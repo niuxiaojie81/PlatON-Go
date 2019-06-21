@@ -264,6 +264,7 @@ func (cbft *Cbft) verifyValidatorSign(blockNumber uint64, validatorIndex uint32,
 	}
 	return nil
 }
+
 func (cbft *Cbft) AgreeViewChange() bool {
 	//cbft.mux.Lock()
 	//defer cbft.mux.Unlock()
@@ -685,7 +686,7 @@ func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote)
 				Number: cbft.viewChange.BaseBlockNum,
 			})
 			// write confirmed viewChange info to wal journal
-			cbft.wal.Write(&MsgInfo{
+			cbft.wal.WriteSync(&MsgInfo{
 				Msg:    &confirmedViewChange{ViewChange: cbft.viewChange, ViewChangeResp: cbft.viewChangeResp, ViewChangeVotes: cbft.viewChangeVotes.Flatten(), Master: cbft.master},
 				PeerID: cbft.config.NodeID,
 			})
@@ -760,8 +761,8 @@ func (cbft *Cbft) broadcastBlock(ext *BlockExt) {
 	cbft.addPrepareBlockVote(p)
 	ext.prepareBlock = p
 
-	// write journal msg
-	cbft.wal.Write(&MsgInfo{
+	// write seal PrepareBlock info to wal journal
+	cbft.wal.WriteSync(&MsgInfo{
 		Msg:    &sendPrepareBlock{PrepareBlock: p},
 		PeerID: cbft.config.NodeID,
 	})
@@ -1206,6 +1207,7 @@ func (bm *BlockExtMap) Total() int {
 }
 func (bm *BlockExtMap) GetSubChainWithTwoThirdVotes(hash common.Hash, number uint64) []*BlockExt {
 	base := bm.findBlock(hash, number)
+	log.Debug("GetSubChainWithTwoThirdVotes", "hash", hash, "number", number, "prepareVotes", base.prepareVotes.Len(), "threshold", bm.threshold, "headHash", bm.head.block.Hash(), "headNumber", bm.head.number)
 	if base == nil || base.prepareVotes.Len() < bm.threshold {
 		return nil
 	}

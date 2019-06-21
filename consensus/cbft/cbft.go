@@ -329,12 +329,13 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool, agency
 	//	return err
 	//}
 	cbft.wal = &emptyWal{}
-	cbft.wal,_ = NewWal(cbft.nodeServiceContext, "")
+	cbft.wal, _ = NewWal(cbft.nodeServiceContext, "")
 	atomic.StoreInt32(&cbft.loading, 1)
 
 	go cbft.receiveLoop()
 	go cbft.executeBlockLoop()
 	//start receive cbft message
+	log.Debug("handler.Start")
 	go cbft.handler.Start()
 	go cbft.update()
 
@@ -520,7 +521,7 @@ func (cbft *Cbft) OnSyncBlock(ext *BlockExt) {
 	cbft.bp.SyncBlockBP().SyncBlock(context.TODO(), ext, cbft)
 	//todo verify block
 	if ext.block.NumberU64() < cbft.getHighestConfirmed().number {
-		cbft.log.Debug("Sync block too lower", "hash", ext.block.Hash(), "number", ext.number, "highest", cbft.getHighestConfirmed().number, "root", cbft.getRootIrreversible().number)
+		cbft.log.Debug("Sync block too lower", "hash", ext.block.Hash(), "number", ext.number, "highestNumber", cbft.getHighestConfirmed().number, "highestHash", cbft.getHighestConfirmed().block.Hash(), "root", cbft.getRootIrreversible().number)
 		ext.SetSyncState(nil)
 		cbft.bp.SyncBlockBP().InvalidBlock(context.TODO(), ext, fmt.Errorf("sync block too lower"), cbft)
 		return
@@ -870,6 +871,7 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 }
 
 func (cbft *Cbft) sealBlockProcess(sealedBlock *types.Block) *BlockExt {
+	log.Debug("sealBlockProcess", "number", sealedBlock.NumberU64(), "hash", sealedBlock.Hash())
 	current := NewBlockExt(sealedBlock, sealedBlock.NumberU64(), cbft.nodeLength())
 	//this block is produced by local node, so need not execute in cbft.
 	current.view = cbft.viewChange
@@ -907,7 +909,7 @@ func (cbft *Cbft) sealBlockProcess(sealedBlock *types.Block) *BlockExt {
 
 // ShouldSeal checks if it's local's turn to package new block at current time.
 func (cbft *Cbft) ShouldSeal(curTime int64) (bool, error) {
-	inturn := cbft.inTurn(curTime)
+	inturn := !cbft.isLoading() && cbft.inTurn(curTime)
 	if inturn {
 		cbft.netLatencyLock.RLock()
 		peersCount := len(cbft.netLatencyMap)
@@ -948,13 +950,13 @@ func (cbft *Cbft) OnSendViewChange() {
 	}
 	cbft.log.Info("Send new view", "nodeID", cbft.config.NodeID, "view", view.String(), "msgHash", view.MsgHash().TerminalString())
 	cbft.bp.ViewChangeBP().SendViewChange(context.TODO(), view, cbft)
-	cbft.handler.SendAllConsensusPeer(view)
 
 	// write new viewChange info to wal journal
-	cbft.wal.Write(&MsgInfo{
+	cbft.wal.WriteSync(&MsgInfo{
 		Msg:    &sendViewChange{ViewChange: view, Master: true},
 		PeerID: cbft.config.NodeID,
 	})
+	cbft.handler.SendAllConsensusPeer(view)
 
 	// gauage
 	blockHighNumConfirmedGauage.Update(int64(cbft.getHighestConfirmed().number))
@@ -2286,6 +2288,21 @@ func (cbft *Cbft) AddJournal(info *MsgInfo) {
 	switch msg := msg.(type) {
 	case *sendPrepareBlock:
 		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendPrepareBlock", msg.PrepareBlock.String())
+		blockExt := NewBlockExtByPrepareBlock(msg.PrepareBlock, cbft.nodeLength())
+		blockExt.view = cbft.viewChange
+		blockExt.viewChangeVotes = cbft.viewChangeVotes.Flatten()
+
+		cbft.blockExtMap.Add(blockExt.block.Hash(), blockExt.block.NumberU64(), blockExt)
+		blocks := cbft.blockExtMap.GetSubChainUnExecuted()
+		for _, ext := range blocks {
+			if ext == nil || ext.parent == nil {
+				panic("add block to blockExtMap error when loading sendPrepareBlock message from wal")
+			}
+			err := cbft.execute(ext, ext.parent)
+			if err != nil {
+				panic("execute block error when loading sendPrepareBlock message from wal")
+			}
+		}
 		cbft.sealBlockProcess(msg.PrepareBlock.Block)
 	case *sendViewChange:
 		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendViewChange", msg.ViewChange.String(), "master", msg.Master)

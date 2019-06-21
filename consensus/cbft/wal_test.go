@@ -16,7 +16,7 @@ import (
 var (
 	viewChangeNumber = uint64(100)
 	viewChangeHash   = common.HexToHash("0x8bfded8b3ccdd1d31bf049b4abf72415a0cc829cdcc0b750a73e0da5df065747")
-	times            = 100
+	times            = 1000
 	tempDir          string
 	wal              Wal
 )
@@ -113,17 +113,17 @@ func TestWalWrite(t *testing.T) {
 				PeerID: buildPeerId(),
 			})
 		 } else if ordinal == 12 {
-			err = getWal().Write(&MsgInfo{
+			err = getWal().WriteSync(&MsgInfo{
 				Msg: buildSendPrepareBlock(),
 				PeerID: buildPeerId(),
 			})
 		} else if ordinal == 13 {
-			err = getWal().Write(&MsgInfo{
+			err = getWal().WriteSync(&MsgInfo{
 				Msg: buildSendViewChange(),
 				PeerID: buildPeerId(),
 			})
 		} else if ordinal == 14 {
-			err = getWal().Write(&MsgInfo{
+			err = getWal().WriteSync(&MsgInfo{
 				Msg: buildConfirmedViewChange(),
 				PeerID: buildPeerId(),
 			})
