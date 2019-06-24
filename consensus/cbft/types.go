@@ -1136,6 +1136,7 @@ func (bm *BlockExtMap) removeFork(number uint64, hash common.Hash) {
 						p.parent = nil
 					}
 				}
+				delete(extMap, k)
 			}
 		}
 	}
