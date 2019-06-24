@@ -33,7 +33,7 @@ import (
 	"github.com/PlatONnetwork/PlatON-Go/p2p/discover"
 	"github.com/PlatONnetwork/PlatON-Go/params"
 	"github.com/PlatONnetwork/PlatON-Go/rpc"
-	lru "github.com/hashicorp/golang-lru"
+	"github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -331,11 +331,13 @@ func (cbft *Cbft) Start(blockChain *core.BlockChain, txPool *core.TxPool, agency
 	//	return err
 	//}
 	cbft.wal = &emptyWal{}
+	cbft.wal, _ = NewWal(cbft.nodeServiceContext, "")
 	atomic.StoreInt32(&cbft.loading, 1)
 
 	go cbft.receiveLoop()
 	go cbft.executeBlockLoop()
 	//start receive cbft message
+	log.Debug("handler.Start")
 	go cbft.handler.Start()
 	go cbft.update()
 
@@ -361,10 +363,9 @@ func (cbft *Cbft) receiveLoop() {
 	for {
 		select {
 		case msg := <-cbft.peerMsgCh:
-
 			count := cbft.queues[msg.PeerID.TerminalString()] + 1
 			if count > maxQueuesLimit {
-				cbft.log.Debug("Discarded msg, exceeded allowance", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash(), "limit", maxQueuesLimit)
+				cbft.log.Debug("Discarded msg, exceeded allowance", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "limit", maxQueuesLimit)
 				break
 			}
 			cbft.queues[msg.PeerID.TerminalString()] = count
@@ -532,7 +533,7 @@ func (cbft *Cbft) OnSyncBlock(ext *BlockExt) {
 	cbft.bp.SyncBlockBP().SyncBlock(context.TODO(), ext, cbft)
 	//todo verify block
 	if ext.block.NumberU64() < cbft.getHighestConfirmed().number {
-		cbft.log.Debug("Sync block too lower", "hash", ext.block.Hash(), "number", ext.number, "highest", cbft.getHighestConfirmed().number, "root", cbft.getRootIrreversible().number)
+		cbft.log.Debug("Sync block too lower", "hash", ext.block.Hash(), "number", ext.number, "highestNumber", cbft.getHighestConfirmed().number, "highestHash", cbft.getHighestConfirmed().block.Hash(), "root", cbft.getRootIrreversible().number)
 		ext.SetSyncState(nil)
 		cbft.bp.SyncBlockBP().InvalidBlock(context.TODO(), ext, fmt.Errorf("sync block too lower"), cbft)
 		return
@@ -746,7 +747,6 @@ func (cbft *Cbft) OnViewChangeTimeout(view *viewChange) {
 			cbft.bp.ViewChangeBP().ViewChangeTimeout(context.TODO(), view, cbft)
 		}
 	}
-
 	viewChangeTimeoutMeter.Mark(1)
 }
 
@@ -871,7 +871,7 @@ func (cbft *Cbft) OnBaseBlock(ch chan *types.Block) {
 
 //to sign the block, and store the sign to header.Extra[32:], send the sign to chanel to broadcast to other consensus nodes
 func (cbft *Cbft) Seal(chain consensus.ChainReader, block *types.Block, sealResultCh chan<- *types.Block, stopCh <-chan struct{}) error {
-	cbft.log.Info("Seal block", "number", block.NumberU64(), "parentHash", block.ParentHash())
+	cbft.log.Info("#######################Seal block#######################", "number", block.NumberU64(), "parentHash", block.ParentHash())
 	header := block.Header()
 
 	number := block.NumberU64()
@@ -898,7 +898,6 @@ func (cbft *Cbft) Seal(chain consensus.ChainReader, block *types.Block, sealResu
 }
 
 func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Block, stopCh <-chan struct{}) {
-
 	if (cbft.getHighestLogical() != nil && !cbft.getHighestLogical().IsParent(sealedBlock.ParentHash())) &&
 		(cbft.getHighestConfirmed() != nil && !cbft.getHighestConfirmed().IsParent(sealedBlock.ParentHash())) {
 		cbft.log.Warn("Futile block cause highest logical block changed",
@@ -908,41 +907,40 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 		return
 	}
 
-	current := NewBlockExt(sealedBlock, sealedBlock.NumberU64(), cbft.nodeLength())
-
-	//this block is produced by local node, so need not execute in cbft.
-	current.view = cbft.viewChange
-	current.timestamp = cbft.viewChange.Timestamp
-	current.inTree = true
-	current.executing = true
-	current.isExecuted = true
-	current.isSigned = true
-
-	//save the block to cbft.blockExtMap
-	cbft.saveBlockExt(sealedBlock.Hash(), current)
-
-	//log this signed block's number
-	cbft.signedSet[sealedBlock.NumberU64()] = struct{}{}
+	current := cbft.sealBlockProcess(sealedBlock)
+	////this block is produced by local node, so need not execute in cbft.
+	//current.view = cbft.viewChange
+	//current.timestamp = cbft.viewChange.Timestamp
+	//current.inTree = true
+	//current.executing = true
+	//current.isExecuted = true
+	//current.isSigned = true
+	//
+	////save the block to cbft.blockExtMap
+	//cbft.saveBlockExt(sealedBlock.Hash(), current)
+	//
+	////log this signed block's number
+	//cbft.signedSet[sealedBlock.NumberU64()] = struct{}{}
 
 	cbft.bp.InternalBP().Seal(context.TODO(), current, cbft)
 	cbft.bp.InternalBP().NewHighestLogicalBlock(context.TODO(), current, cbft)
-	cbft.SetLocalHighestPrepareNum(current.number)
-	cbft.reset(sealedBlock)
-	if cbft.getValidators().Len() == 1 {
-		cbft.log.Info("Seal complete", "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64())
-		cbft.log.Debug("Single node mode, confirm now")
-		//only one consensus node, so, each block is highestConfirmed. (lock is needless)
-		current.isConfirmed = true
-		cbft.highestLogical.Store(current)
-		cbft.highestConfirmed.Store(current)
-		cbft.flushReadyBlock()
-		return
-	}
-
-	//reset cbft.highestLogicalBlockExt cause this block is produced by myself
-	cbft.highestLogical.Store(current)
-	cbft.AddPrepareBlock(sealedBlock)
-	cbft.log.Info("Seal complete", "nodeID", cbft.config.NodeID, "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64(), "timestamp", sealedBlock.Time(), "producerBlocks", cbft.producerBlocks.Len())
+	//cbft.SetLocalHighestPrepareNum(current.number)
+	//cbft.reset(sealedBlock)
+	//if cbft.getValidators().Len() == 1 {
+	//	cbft.log.Info("Seal complete", "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64())
+	//	cbft.log.Debug("Single node mode, confirm now")
+	//	//only one consensus node, so, each block is highestConfirmed. (lock is needless)
+	//	current.isConfirmed = true
+	//	cbft.highestLogical.Store(current)
+	//	cbft.highestConfirmed.Store(current)
+	//	cbft.flushReadyBlock()
+	//	return
+	//}
+	//
+	////reset cbft.highestLogicalBlockExt cause this block is produced by myself
+	//cbft.highestLogical.Store(current)
+	//cbft.AddPrepareBlock(sealedBlock)
+	//cbft.log.Info("Seal complete", "nodeID", cbft.config.NodeID, "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64(), "timestamp", sealedBlock.Time(), "producerBlocks", cbft.producerBlocks.Len())
 
 	cbft.broadcastBlock(current)
 	//todo change sign and block state
@@ -962,9 +960,46 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 	}()
 }
 
+func (cbft *Cbft) sealBlockProcess(sealedBlock *types.Block) *BlockExt {
+	log.Debug("sealBlockProcess", "number", sealedBlock.NumberU64(), "hash", sealedBlock.Hash())
+	current := NewBlockExt(sealedBlock, sealedBlock.NumberU64(), cbft.nodeLength())
+	//this block is produced by local node, so need not execute in cbft.
+	current.view = cbft.viewChange
+	current.timestamp = cbft.viewChange.Timestamp
+	current.inTree = true
+	current.executing = true
+	current.isExecuted = true
+	current.isSigned = true
+
+	//save the block to cbft.blockExtMap
+	cbft.saveBlockExt(sealedBlock.Hash(), current)
+
+	//log this signed block's number
+	cbft.signedSet[sealedBlock.NumberU64()] = struct{}{}
+
+	cbft.SetLocalHighestPrepareNum(current.number)
+	cbft.reset(sealedBlock)
+	if cbft.getValidators().Len() == 1 {
+		cbft.log.Info("Seal complete", "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64())
+		cbft.log.Debug("Single node mode, confirm now")
+		//only one consensus node, so, each block is highestConfirmed. (lock is needless)
+		current.isConfirmed = true
+		cbft.highestLogical.Store(current)
+		cbft.highestConfirmed.Store(current)
+		cbft.flushReadyBlock()
+		return current
+	}
+
+	//reset cbft.highestLogicalBlockExt cause this block is produced by myself
+	cbft.highestLogical.Store(current)
+	cbft.AddPrepareBlock(sealedBlock)
+	cbft.log.Info("Seal complete", "nodeID", cbft.config.NodeID, "hash", sealedBlock.Hash(), "number", sealedBlock.NumberU64(), "timestamp", sealedBlock.Time(), "producerBlocks", cbft.producerBlocks.Len())
+	return current
+}
+
 // ShouldSeal checks if it's local's turn to package new block at current time.
 func (cbft *Cbft) ShouldSeal(curTime int64) (bool, error) {
-	inturn := cbft.inTurn(curTime)
+	inturn := !cbft.isLoading() && cbft.inTurn(curTime)
 	if inturn {
 		cbft.netLatencyLock.RLock()
 		peersCount := len(cbft.netLatencyMap)
@@ -1005,6 +1040,12 @@ func (cbft *Cbft) OnSendViewChange() {
 	}
 	cbft.log.Info("Send new view", "nodeID", cbft.config.NodeID, "view", view.String(), "msgHash", view.MsgHash().TerminalString())
 	cbft.bp.ViewChangeBP().SendViewChange(context.TODO(), view, cbft)
+
+	// write new viewChange info to wal journal
+	cbft.wal.WriteSync(&MsgInfo{
+		Msg:    &sendViewChange{ViewChange: view, Master: true},
+		PeerID: cbft.config.NodeID,
+	})
 	cbft.handler.SendAllConsensusPeer(view)
 
 	// gauage
@@ -1039,7 +1080,6 @@ func (cbft *Cbft) OnViewChange(peerID discover.NodeID, view *viewChange) error {
 				atomic.StoreInt32(&cbft.running, 0)
 			} else {
 				cbft.log.Warn(fmt.Sprintf("Local is too slower, need to sync block to %s", peerID.TerminalString()))
-
 				cbft.handler.Send(peerID, &getHighestPrepareBlock{Lowest: cbft.getRootIrreversible().number + 1})
 			}
 		}
@@ -1077,17 +1117,22 @@ func (cbft *Cbft) OnViewChange(peerID discover.NodeID, view *viewChange) error {
 	time.AfterFunc(time.Duration(cbft.config.Period)*time.Second, func() {
 		cbft.viewChangeVoteTimeoutCh <- resp
 	})
-	cbft.setViewChange(view)
-	// add to viewChangeVote When the viewChange is approved by self
-	cbft.viewChangeVotes[resp.ValidatorAddr] = resp
+	cbft.agreeViewChangeProcess(view, resp)
+	//cbft.viewChangeResp = resp
+	//cbft.setViewChange(view)
+	//// add to viewChangeVote When the viewChange is approved by self
+	//cbft.viewChangeVotes[resp.ValidatorAddr] = resp
 	cbft.bp.InternalBP().SwitchView(bpCtx, view, cbft)
 	cbft.bp.ViewChangeBP().SendViewChangeVote(bpCtx, resp, cbft)
-	//cbft.handler.SendAllConsensusPeer(view)
 	cbft.handler.SendAllConsensusPeer(resp)
-
-	//cbft.handler.Send(peerID, cbft.viewChangeResp)
 	return nil
+}
 
+func (cbft *Cbft) agreeViewChangeProcess(view *viewChange, viewChangeResp *viewChangeVote) {
+	cbft.setViewChange(view)
+	cbft.viewChangeResp = viewChangeResp
+	// add vote to viewChangeVotes When the viewChange is agree by self
+	cbft.viewChangeVotes[viewChangeResp.ValidatorAddr] = viewChangeResp
 }
 
 // flushReadyBlock finds ready blocks and flush them to chain
@@ -1126,7 +1171,6 @@ func (cbft *Cbft) flushReadyBlock() bool {
 
 	cbft.evPool.Clear(cbft.viewChange.Timestamp, cbft.viewChange.BaseBlockNum)
 	return true
-
 }
 
 // Receive prepare block from the other consensus node.
@@ -1164,7 +1208,7 @@ func (cbft *Cbft) OnNewPrepareBlock(nodeId discover.NodeID, request *prepareBloc
 		return errInvalidatorCandidateAddress
 	}
 
-	cbft.log.Debug("Receive prepare block", "number", request.Block.NumberU64(), "ViewChangeVotes", len(request.ViewChangeVotes))
+	cbft.log.Debug("Receive prepare block", "number", request.Block.NumberU64(), "hash", request.Block.Hash(), "peer", nodeId, "ViewChangeVotes", len(request.ViewChangeVotes))
 	ext = NewBlockExtByPrepareBlock(request, cbft.nodeLength())
 
 	if len(request.ViewChangeVotes) != 0 && request.View != nil {
@@ -1276,7 +1320,6 @@ func (cbft *Cbft) OnNewBlock(ext *BlockExt) error {
 
 //blockReceiver handles the new block
 func (cbft *Cbft) blockReceiver(ext *BlockExt) {
-
 	cbft.blockExtMap.Add(ext.block.Hash(), ext.block.NumberU64(), ext)
 	blocks := cbft.blockExtMap.GetSubChainUnExecuted()
 	log.Debug("Receive block", "unexecuted", len(blocks), "block map", cbft.blockExtMap.Len())
@@ -1335,7 +1378,6 @@ func (cbft *Cbft) prepareVoteReceiver(peerID discover.NodeID, vote *prepareVote)
 			cbft.handler.SendAllConsensusPeer(&confirmedPrepareBlock{Hash: ext.block.Hash(), Number: ext.block.NumberU64(), VoteBits: ext.prepareVotes.voteBits})
 		}
 	}
-
 }
 
 //Receive executed block status, remove block if status is error
@@ -2331,10 +2373,47 @@ func (cbft *Cbft) needBroadcast(nodeId discover.NodeID, msg Message) bool {
 	return true
 }
 
-func (cbft *Cbft) AddJournal(msg *MsgInfo) {
-	cbft.log.Debug("Method:LoadPeerMsg received message from peer", "peer", msg.PeerID.TerminalString(), "msgType", reflect.TypeOf(msg.Msg), "msgHash", msg.Msg.MsgHash().TerminalString(), "BHash", msg.Msg.BHash().TerminalString())
-	//cbft.handleMsg(msg)
-	cbft.ReceivePeerMsg(msg)
+func (cbft *Cbft) AddJournal(info *MsgInfo) {
+	msg, peerID := info.Msg, info.PeerID
+	cbft.log.Debug("Load journal message from wal", "peer", peerID.TerminalString(), "msgType", reflect.TypeOf(msg))
+
+	switch msg := msg.(type) {
+	case *sendPrepareBlock:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendPrepareBlock", msg.PrepareBlock.String())
+		blockExt := NewBlockExtByPrepareBlock(msg.PrepareBlock, cbft.nodeLength())
+		blockExt.view = cbft.viewChange
+		blockExt.viewChangeVotes = cbft.viewChangeVotes.Flatten()
+
+		cbft.blockExtMap.Add(blockExt.block.Hash(), blockExt.block.NumberU64(), blockExt)
+		blocks := cbft.blockExtMap.GetSubChainUnExecuted()
+		for _, ext := range blocks {
+			if ext == nil || ext.parent == nil {
+				panic("add block to blockExtMap error when loading sendPrepareBlock message from wal")
+			}
+			err := cbft.execute(ext, ext.parent)
+			if err != nil {
+				panic("execute block error when loading sendPrepareBlock message from wal")
+			}
+		}
+		cbft.sealBlockProcess(msg.PrepareBlock.Block)
+	case *sendViewChange:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "sendViewChange", msg.ViewChange.String(), "master", msg.Master)
+		cbft.newViewChangeProcess(msg.ViewChange)
+	case *confirmedViewChange:
+		log.Debug("Load journal message from wal", "msgType", reflect.TypeOf(msg), "confirmedViewChange", msg.ViewChange.String())
+		if msg.Master {
+			cbft.newViewChangeProcess(msg.ViewChange)
+		} else {
+			cbft.agreeViewChangeProcess(msg.ViewChange, msg.ViewChangeResp)
+		}
+		viewChangeVotes := make(map[common.Address]*viewChangeVote)
+		for _, v := range msg.ViewChangeVotes {
+			viewChangeVotes[v.ValidatorAddr] = v
+		}
+		cbft.confirmedViewChangeProcess(viewChangeVotes)
+	default:
+		cbft.ReceivePeerMsg(info)
+	}
 }
 
 func (cbft *Cbft) isForwarded(nodeId discover.NodeID, msg Message) bool {
