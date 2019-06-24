@@ -85,6 +85,9 @@ func (vv ViewChangeVotes) Bits(cnt int) string {
 }
 
 func (vv ViewChangeVotes) MarshalJSON() ([]byte, error) {
+	if vv == nil {
+		return []byte("{}"), nil
+	}
 	type Vote struct {
 		Address common.Address  `json:"address"`
 		Vote    *viewChangeVote `json:"vote"`
@@ -421,7 +424,7 @@ func (cbft *Cbft) AcceptPrepareVote(vote *prepareVote) AcceptStatus {
 	}
 
 	if cbft.viewChange != nil && cbft.viewChangeVotes != nil {
-		log.Warn("Cache vote", "view", cbft.viewChange.String(), "view prepareVotes", cbft.viewVoteState())
+		log.Warn("Cache vote", "view", cbft.viewChange.String())
 	} else {
 		log.Warn("Cache vote", "viewchange", cbft.viewChange != nil, "has view vote", cbft.viewChangeVotes != nil)
 	}
@@ -523,7 +526,7 @@ func (cbft *Cbft) newViewChange() (*viewChange, error) {
 
 	if ext.number < cbft.localHighestPrepareVoteNum {
 		//todo ask prepare vote to other, need optimize
-		cbft.handler.SendAllConsensusPeer(&getHighestPrepareBlock{Lowest: ext.number})
+		cbft.handler.SendPartBroadcast(&getHighestPrepareBlock{Lowest: ext.number})
 
 		return nil, errInvalidConfirmNumTooLow
 	}
@@ -606,8 +609,7 @@ func (cbft *Cbft) VerifyAndViewChange(view *viewChange) error {
 }
 
 func (cbft *Cbft) setViewChange(view *viewChange) {
-	log.Info("Make viewchange vote", "vote", view.String())
-
+	log.Info("Setting new viewChange", "view", view.String())
 	cbft.resetViewChange()
 	cbft.viewChange = view
 	cbft.master = false
@@ -622,7 +624,7 @@ func (cbft *Cbft) nextRoundValidator(blockNumber uint64) uint64 {
 }
 
 func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote) error {
-	log.Debug("Receive view change vote", "peer", peerID, "vote", vote.String(), "view", cbft.viewChange.String())
+	log.Debug("Receive view change vote", "peer", peerID, "vote", vote.String(), "view", cbft.viewChange.String(), "msgHash", vote.MsgHash())
 	bpCtx := context.WithValue(context.Background(), "peer", peerID)
 	cbft.bp.ViewChangeBP().ReceiveViewChangeVote(bpCtx, vote, cbft)
 	if cbft.needBroadcast(peerID, vote) {
@@ -633,6 +635,9 @@ func (cbft *Cbft) OnViewChangeVote(peerID discover.NodeID, vote *viewChangeVote)
 	hadAgree := cbft.agreeViewChange()
 	if cbft.viewChange != nil && vote.EqualViewChange(cbft.viewChange) {
 		if err := cbft.verifyValidatorSign(cbft.nextRoundValidator(cbft.viewChange.BaseBlockNum), vote.ValidatorIndex, vote.ValidatorAddr, vote, vote.Signature[:]); err == nil {
+			if v := cbft.viewChangeVotes[vote.ValidatorAddr]; v == nil {
+				cbft.bp.ViewChangeBP().AcceptViewChangeVote(bpCtx, vote, cbft)
+			}
 			cbft.viewChangeVotes[vote.ValidatorAddr] = vote
 			log.Info("Agree receive view change response", "peer", peerID, "viewChangeVotes", len(cbft.viewChangeVotes))
 		} else {
