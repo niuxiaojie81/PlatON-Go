@@ -906,6 +906,11 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 			"state", cbft.blockState())
 		return
 	}
+	logicNum := cbft.getHighestLogical().number
+	if logicNum == sealedBlock.NumberU64() {
+		cbft.log.Warn("logicNum must not equal sealedBlock", "logicNum", logicNum, "sealedNum", sealedBlock.NumberU64())
+		return
+	}
 
 	current := cbft.sealBlockProcess(sealedBlock)
 	////this block is produced by local node, so need not execute in cbft.
@@ -921,7 +926,6 @@ func (cbft *Cbft) OnSeal(sealedBlock *types.Block, sealResultCh chan<- *types.Bl
 	//
 	////log this signed block's number
 	//cbft.signedSet[sealedBlock.NumberU64()] = struct{}{}
-
 	cbft.bp.InternalBP().Seal(context.TODO(), current, cbft)
 	cbft.bp.InternalBP().NewHighestLogicalBlock(context.TODO(), current, cbft)
 	//cbft.SetLocalHighestPrepareNum(current.number)
