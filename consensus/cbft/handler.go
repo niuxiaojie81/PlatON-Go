@@ -73,7 +73,8 @@ func (h *baseHandler) sendLoop() {
 	for {
 		select {
 		case m := <-h.sendQueue:
-			if m == nil {
+			log.Debug("send msg to queue", "mode", m.mode, "", m.msg.String(), "isLoading", h.cbft.isLoading())
+			if m == nil || h.cbft.isLoading() {
 				return
 			}
 			if len(m.peerID) == 0 {
